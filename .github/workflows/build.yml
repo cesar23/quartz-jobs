@@ -15,7 +15,7 @@ name: Build and Push Image
 
 on:
   push:
-    branches: [develop2]
+    branches: [develop]
   workflow_dispatch:
 
 permissions:
