@@ -1,0 +1,163 @@
+# =========================================================================
+# Docker Compose - Configuración Base
+# =========================================================================
+# Este archivo contiene la configuración común para todos los entornos.
+# Se complementa con docker-compose.dev.yml o docker-compose.prod.yml
+# =========================================================================
+# Uso:
+#  ===== verificar  configuracion y  variables
+# docker compose -f docker-compose.yml --env-file .env.pre config
+#
+# docker compose -f docker-compose.yml  --env-file .env.pre up -d
+# docker compose -f docker-compose.yml  --env-file .env.pre build --no-cache
+# ================= clear  cache
+#       docker compose -f docker-compose.yml  --env-file .env.pre build --no-cache backup
+#       docker compose -f docker-compose.yml  --env-file .env.pre up -d --force-recreate backup
+# docker compose -f docker-compose.yml  --env-file .env.pre down
+# =========================================================================
+# ================= clear  volumen
+# docker volume rm $(docker volume ls -f dangling=true -q | grep -E '^jobs')
+services:
+
+  # -----------------------------------------------------------------------
+  # Servicio de la aplicacion quartz-jobs (se compila desde el Dockerfile)
+  # -----------------------------------------------------------------------
+  quartz-jobs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: '${COMPOSE_PROJECT_NAME}-app'
+    restart: unless-stopped
+    # Antes: "env_file: - .env.dev" (fijo). El problema: no importa que
+    # le pases --env-file .env.pre al comando, el contenedor SIEMPRE
+    # cargaba ".env.dev" -- imposible correr otro perfil asi.
+    #
+    # Ahora: cada variable se resuelve con ${VAR}, tomando el valor del
+    # archivo que le indiques con --env-file al momento de levantar
+    # (ver comandos abajo). Nada de nombres de archivo quemados aca.
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE}
+      SERVER_PORT: ${SERVER_PORT}
+      # DENTRO de la red de Docker, un contenedor no ve a otro por
+      # "localhost" -- se ve por el NOMBRE DEL SERVICIO. Por eso DB_HOST
+      # se fuerza a "mariadb" aca, sin importar lo que traiga el .env
+      # (que suele tener DB_HOST=localhost, para correr fuera de Docker).
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      MAIL_HOST: ${MAIL_HOST}
+      MAIL_PORT: ${MAIL_PORT}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      LOG_LEVEL: ${LOG_LEVEL}
+      QUARTZ_INIT_SCHEMA: ${QUARTZ_INIT_SCHEMA:-never}
+    ports:
+      # HOST_PORT si varia por ambiente (7080 en pre, 8080 en dev/prod);
+      # el lado derecho (contenedor) siempre es 8080, fijo -- ver arriba.
+      - "${HOST_PORT:-8080}:8080"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    labels:
+      - "com.docker.compose.project=${COMPOSE_PROJECT_NAME}"
+      - "com.docker.compose.service=quartz-jobs"
+    networks:
+      - quartz-net
+
+
+  # -----------------------------------------------------------------------
+  # Servicio de MariaDB
+  # -----------------------------------------------------------------------
+  mariadb:
+    image: mariadb:${MARIADB_VERSION:-11.8.5}
+    container_name: '${COMPOSE_PROJECT_NAME}-mariadb'
+    restart: unless-stopped
+    # Volumen NOMBRADO: los datos sobreviven a "docker compose down"
+    # (que borra el contenedor). Solo se pierden con "down -v" a proposito.
+    # Docker Compose antepone el nombre del proyecto automaticamente
+    # (COMPOSE_PROJECT_NAME) -> "mariadb_data" queda como volumen distinto
+    # por cada ambiente (jobs-dev_mariadb_data, jobs-pre_mariadb_data, etc),
+    # sin chocar entre si.
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    environment:
+      TZ: ${_TZ}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      # Antes estas 3 no estaban definidas en ningun .env.dev -> MariaDB se
+      # creaba con BD/usuario vacios, y la app (que usa DB_NAME/DB_USERNAME/
+      # DB_PASSWORD) no podia conectar porque esas credenciales no existian
+      # realmente en el contenedor. Se mapean aca para que sea LA MISMA BD
+      # que la app espera, sin duplicar variables en el .env.dev.
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USERNAME}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    #    ports:
+    #      - "${MYSQL_PORT-3306}:3306"  # Puerto de MySQL (local -> contenedor)
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-u", "root", "-p${MARIADB_ROOT_PASSWORD}"]
+      #      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    labels:
+      - "com.docker.compose.project=${COMPOSE_PROJECT_NAME}"
+      - "com.docker.compose.service=mariadb"
+    networks:
+      - quartz-net
+
+  # -----------------------------------------------------------------------
+  # Servicio de phpMyAdmin
+  # -----------------------------------------------------------------------
+  phpmyadmin:
+    image: phpmyadmin:${PHPMYADMIN_VERSION:-5.2.3}
+    container_name: '${COMPOSE_PROJECT_NAME}-phpmyadmin'
+    restart: unless-stopped
+    ports:
+      - "${HOST_MACHINE_PMA_PORT:-9090}:80"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      PMA_HOST: mariadb
+      PMA_PORT: 3306
+      PMA_USER: root
+      PMA_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      UPLOAD_LIMIT: ${UPLOAD_LIMIT:-512M}
+      MEMORY_LIMIT: ${MEMORY_LIMIT:-512M}
+      MAX_EXECUTION_TIME: ${MAX_EXECUTION_TIME:-600}
+    #    volumes:
+    #      - ./config/php/dev/php-phpmyadmin.ini:/usr/local/etc/php/conf.d/php-phpmyadmin.ini:ro
+
+    labels:
+      - "com.docker.compose.project=${COMPOSE_PROJECT_NAME}"
+      - "com.docker.compose.service=phpmyadmin"
+    networks:
+      - quartz-net
+
+# -------------------------------------------------------------------------
+# Red
+# -------------------------------------------------------------------------
+# Red explicita y con nombre fijo (en vez de dejar que Compose cree la
+# "default" implicita, cuyo nombre depende de COMPOSE_PROJECT_NAME). Los
+# 3 servicios estan aca -> se resuelven entre si por nombre de servicio
+# (ej: DB_HOST=mariadb funciona porque ambos estan en "quartz-net").
+networks:
+  quartz-net:
+    driver: bridge
+    name: ${COMPOSE_PROJECT_NAME:-quartz-jobs}-net
+
+# -------------------------------------------------------------------------
+# Volúmenes
+# -------------------------------------------------------------------------
+# Nombre explicito por ambiente (mismo patron que la red "quartz-net" de
+# arriba) -- aunque Compose ya antepone COMPOSE_PROJECT_NAME por defecto
+# a los volumenes sin "name:", esto lo deja explicito y visible: cada
+# ambiente (jobs-dev/jobs-pre/jobs-prod) tiene su propio volumen, nunca
+# comparten datos entre si.
+volumes:
+  mariadb_data:
+    name: ${COMPOSE_PROJECT_NAME:-quartz-jobs}-mariadb-data

@@ -1,0 +1,33 @@
+# .markdownlint.yaml
+# Basado en el perfil "default" de markdownlint, relajando solo reglas
+# puramente estilísticas que generan ruido en docs técnicas internas,
+# sin afectar la legibilidad real. Mismo criterio que .yamllint.yml.
+
+default: true
+
+# MD060 es una regla nueva y MUY estricta con el espaciado exacto de las
+# tuberías de las tablas (" | " vs "| "). No afecta legibilidad real —
+# responsable de la gran mayoría de los 199 errores originales.
+MD060: false
+
+# Exigir lenguaje en TODO bloque de código (```bash vs ```) — molesto para
+# bloques de salida de terminal/logs que no son código propiamente dicho.
+MD040: false
+
+# Límite de longitud de línea — las tablas y URLs largas lo disparan
+# constantemente en docs técnicas; no afecta legibilidad real.
+MD013: false
+
+# Encabezados duplicados — normal en docs con secciones repetidas por
+# job/entorno (ej: "Qué hace, paso a paso" aparece en cada job).
+MD024: false
+
+# URLs sueltas sin formato [texto](url) — aceptable en notas internas rápidas.
+MD034: false
+
+# Puntuación al final de un encabezado (ej: "Configuración:") — cosmético.
+MD026: false
+
+# Exigir que la primera línea del archivo sea un H1 — algunos docs empiezan
+# con una nota de contexto antes del título.
+MD041: false

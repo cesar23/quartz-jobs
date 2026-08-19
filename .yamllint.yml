@@ -1,0 +1,26 @@
+---
+# .yamllint.yml
+# Basado en el perfil "default" de yamllint, relajando solo reglas
+# puramente estilísticas que no afectan la validez ni la legibilidad
+# real del YAML (docker-compose, application.yml, etc.)
+extends: default
+
+rules:
+  # No exigir "---" al inicio de cada archivo YAML: es opcional y
+  # muchos archivos de Spring Boot / docker-compose no lo usan.
+  document-start: disable
+
+  # Los comentarios alineados "a ojo" en docker-compose/application.yml
+  # no siempre calzan con la indentación estricta que exige esta regla.
+  comments-indentation: disable
+
+  # Solo exige al menos 1 espacio después de "#", sin ser tan estricto
+  # como el default (que pide 2 espacios antes del comentario en línea).
+  comments:
+    min-spaces-from-content: 1
+
+  # Spring Boot suele tener líneas largas en application.yml
+  # (URLs de datasource, mensajes, etc.)
+  line-length:
+    max: 160
+    level: warning

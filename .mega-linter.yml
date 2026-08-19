@@ -1,0 +1,57 @@
+---
+# .mega-linter.yml
+# Configuración optimizada para proyecto Spring Boot (Java 21)
+
+SHOW_ELAPSED_TIME: true
+IGNORE_GITIGNORED_FILES: true
+PRINT_ALPACA: false
+
+# Solo autoarreglar formatos triviales y seguros (JSON).
+# Checkstyle/PMD no tienen modo "fix" real, así que no tiene sentido
+# incluirlos aquí, y dejar Java fuera evita sorpresas de reescritura en CI.
+APPLY_FIXES:
+  - JSON_PRETTIER
+
+# Linters principales para Java + Spring Boot
+ENABLE_LINTERS:
+  - JAVA_CHECKSTYLE
+  - JAVA_PMD
+  - YAML_YAMLLINT
+  - JSON_PRETTIER
+  - DOCKERFILE_HADOLINT
+
+# Carpetas a excluir del análisis (build, tooling, editor, reportes propios de MegaLinter)
+EXCLUDED_DIRECTORIES:
+  - target
+  - build
+  - node_modules
+  - .github
+  - .mvn
+  - .gradle
+  - .git
+  - .vscode
+  - .idea
+  - megalinter-reports
+  - my_resources
+
+# NOTA: YAML_YAMLLINT sí sigue activo, por eso no se excluye .yml/.yaml
+# globalmente aquí (eso lo desactivaría por completo, sin encontrar archivos).
+# Markdown quedó fuera directamente en ENABLE_LINTERS (arriba), así que no
+# hace falta ningún filtro para .md.
+
+# Configuración específica por linter
+JAVA_CHECKSTYLE_CONFIG_FILE: .github/linters/checkstyle.xml
+JAVA_PMD_CONFIG_FILE: .github/linters/pmd-ruleset.xml
+YAML_YAMLLINT_CONFIG_FILE: .yamllint.yml
+
+# Los hallazgos de prioridad 3, 4 y 5 (la GRAN mayoria de las reglas default
+# de PMD son prioridad 3 "Medium" -- estilo/diseño, no bugs reales) quedan
+# como informativos, visibles en el reporte pero sin tumbar el linter.
+# Solo prioridad 1-2 (High / Medium-High: bugs reales, seguridad, recursos
+# sin cerrar) cuenta como error bloqueante.
+JAVA_PMD_ARGUMENTS:
+  - "--minimum-priority"
+  - "2"
+
+# DISABLE_LINTERS:
+#   - JAVA_CHECKSTYLE   # Desactiva temporalmente para debug

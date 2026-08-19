@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<!--.github/linters/suppressions.xml-->
+<!DOCTYPE suppressions PUBLIC
+    "-//Checkstyle//DTD SuppressionFilter Configuration 1.2//EN"
+    "https://checkstyle.org/dtds/suppressions_1_2.dtd">
+
+<suppressions>
+    <!-- ==================== CHECKSTYLE SUPRESIONES ==================== -->
+
+    <!-- Ignorar archivos generados o de tests -->
+    <suppress files="[\\/]target[\\/]" checks=".+"/>
+    <suppress files="[\\/]build[\\/]" checks=".+"/>
+    <suppress files="Test\.java" checks=".+"/>
+    <suppress files="IT\.java" checks=".+"/>
+
+    <!-- Reglas comunes que suelen molestar en Spring Boot -->
+    <suppress files="\.java$" checks="MissingJavadocMethod" message="Missing a Javadoc comment"/>
+    <suppress files="\.java$" checks="MissingJavadocType"/>
+    <suppress files="\.java$" checks="MissingJavadocPackage"/>
+
+    <!-- Ignorar en controladores y DTOs (muy comunes en Spring) -->
+    <suppress files="Controller\.java|Dto\.java|Request\.java|Response\.java" checks="DataClass"/>
+    <suppress files="Controller\.java" checks="CyclomaticComplexity"/>
+    <suppress files="Controller\.java" checks="GodClass"/>
+
+    <!-- Ignorar serialVersionUID en clases Serializable -->
+    <suppress files="\.java$" checks="MagicNumber" message=".*serialVersionUID.*"/>
+
+    <!-- ==================== PMD SUPRESIONES (si usas PMD) ==================== -->
+    <!-- PMD usa el mismo archivo suppressions.xml si lo configuras correctamente -->
+
+</suppressions>

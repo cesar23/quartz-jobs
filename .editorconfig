@@ -1,0 +1,29 @@
+# EditorConfig ayuda a mantener un estilo consistente entre editores/IDEs
+# https://editorconfig.org — soportado de forma nativa por IntelliJ IDEA,
+# VS Code (con extensión), Eclipse (con plugin), etc.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.java]
+indent_size = 4
+
+[*.{yml,yaml,json}]
+indent_size = 2
+
+[*.md]
+indent_size = 2
+# En Markdown, dos espacios al final de línea = salto de línea intencional
+trim_trailing_whitespace = false
+
+[*.xml]
+indent_size = 4
+
+[Makefile]
+indent_style = tab

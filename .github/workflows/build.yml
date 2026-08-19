@@ -1,0 +1,228 @@
+# .github/workflows/build.yml
+# =============================================================================
+# WORKFLOW: Build, Test, Quality & Push (build once)
+# =============================================================================
+# Reemplaza a 1-docker-build.yml.
+# CAMBIO CLAVE: ya NO escucha "pre" ni "master". Solo "develop" construye
+# y publica imagen. pre/master ya no generan builds propios: se alimentan
+# por promoción (retag del mismo digest) desde promote-pre.yml / promote-prod.yml.
+# Esto es lo que garantiza "build once, promote everywhere": la imagen que
+# se prueba en pre y la que corre en prod son, byte a byte, la misma que
+# salió de este workflow.
+# =============================================================================
+
+name: Build and Push Image
+
+on:
+  push:
+    branches: [develop2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+env:
+  IMAGE_NAME: ${{ github.repository }}
+  JAVA_VERSION: '21'
+  REGISTRY: ghcr.io
+  GITHUB_TOKEN_PAT: ${{ secrets.TOKEN_GITHUB }}
+
+jobs:
+  # ============================================
+  # JOB 1: CI - Build, Test
+  # ============================================
+  build-and-test:
+    runs-on: ubuntu-latest
+    name: Build & Test
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configurar JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Dar permisos a Maven Wrapper
+        run: chmod +x mvnw
+
+      - name: Build y Test con Maven
+        run: |
+          cat pom.xml
+          ./mvnw clean package
+          ./mvnw clean verify
+
+      - name: Subir reporte de tests
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-reports
+          path: target/surefire-reports/
+
+  # ============================================
+  # JOB 2: Análisis de Calidad (MegaLinter)
+  # ============================================
+  # La config (ENABLE_LINTERS, EXCLUDED_DIRECTORIES, FILTER_REGEX_EXCLUDE,
+  # JAVA_CHECKSTYLE_CONFIG_FILE, JAVA_PMD_CONFIG_FILE...) YA NO va aca por
+  # "env:" -- vivia duplicada, DISTINTA al .mega-linter.yml del repo (traia
+  # MARKDOWN_MARKDOWNLINT que ya sacamos en local, y un FILTER_REGEX_EXCLUDE
+  # que excluia TODOS los .yml/.md globalmente, dejando YAML_YAMLLINT sin
+  # archivos que analizar -- el mismo bug que ya se habia corregido en
+  # local, pero seguia vivo aca porque nadie lo notaba). La action detecta
+  # el .mega-linter.yml de la raiz del repo automaticamente: UN SOLO
+  # archivo de config manda tanto en local como en CI.
+  #
+  # GITHUB_TOKEN sigue usando el PAT propio (GITHUB_TOKEN_PAT / secret
+  # TOKEN_GITHUB), tal como ya lo tenias -- se mantiene sin tocar.
+  megalinter-analysis:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    name: MegaLinter Code Quality Analysis
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ejecutar MegaLinter
+        id: ml
+        uses: oxsecurity/megalinter/flavors/java@v9
+        env:
+          VALIDATE_ALL_CODEBASE: true
+          GITHUB_TOKEN: ${{ env.GITHUB_TOKEN_PAT }}
+          ENABLE_LINTERS: |
+            JAVA_CHECKSTYLE
+            JAVA_PMD
+            MARKDOWN_MARKDOWNLINT
+            YAML_YAMLLINT
+            JSON_PRETTIER
+            DOCKERFILE_HADOLINT
+          EXCLUDED_DIRECTORIES: |
+            target
+            build
+            node_modules
+            .github
+            .mvn
+            .gradle
+          FILTER_REGEX_EXCLUDE: '(\.md$|\.yml$|\.yaml$)'
+          JAVA_CHECKSTYLE_CONFIG_FILE: .github/linters/checkstyle.xml
+          JAVA_PMD_CONFIG_FILE: .github/linters/pmd-ruleset.xml
+          REPORT_OUTPUT_FOLDER: none
+          EMAIL_REPORTER: false
+          TEXT_REPORTER: true
+          GITHUB_STATUS_REPORTER: true
+          GITHUB_COMMENT_REPORTER: true
+
+      - name: Subir reporte de MegaLinter
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: megalinter-report
+          path: |
+            report/
+            megalinter-reports/
+
+      - name: Fail si hay errores críticos
+        if: steps.ml.outcome == 'failure'
+        run: |
+          echo "❌ MegaLinter encontró errores de calidad de código"
+          exit 1
+
+  # ============================================
+  # JOB 3: Build Docker Image (una sola vez) + Security Scan
+  # ============================================
+  # CAMBIO: ya no genera tags por rama (develop/pre/master). Ahora solo
+  # genera dos tags, ambos derivados del mismo build de "develop":
+  #   - dev-<sha corto>   -> tag INMUTABLE, es el que se promueve más adelante
+  #   - dev                -> tag mutable de conveniencia ("último de develop")
+  # Nunca se genera un tag "latest" aquí: "prod" solo se genera por promoción
+  # (ver promote-prod.yml), nunca por un build directo.
+  docker-build-and-scan:
+    runs-on: ubuntu-latest
+    needs: [build-and-test, megalinter-analysis]
+    name: Docker Build & Security Scan
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login a GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+#          password: ${{ secrets.GITHUB_TOKEN_PAT }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ===================================================
+      - name: Configurar JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Dar permisos a Maven Wrapper
+        run: chmod +x mvnw
+
+      - name: Build y Test con Maven
+        run: |
+          ./mvnw clean package
+          ./mvnw clean verify
+
+      - name: Set short SHA
+        id: vars
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build y Push Docker Image (build once)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ steps.vars.outputs.sha_short }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Escanear imagen con Trivy
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ steps.vars.outputs.sha_short }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Subir resultados de Trivy como artifact
+        # No se sube a Security > Code scanning porque eso requiere
+        # GitHub Advanced Security (no disponible en repos privados de
+        # cuentas personales).
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-results-sarif
+          path: trivy-results.sarif
+          retention-days: 30
+
+# =============================================================================
+# RESULTADO: imagen publicada UNA sola vez en ghcr.io con tags:
+#   dev-<sha corto>  (inmutable, usar este para promover)
+#   dev               (mutable, "último de develop")
+#
+# El SHA corto que necesitas para el siguiente paso (promote-pre.yml) es el
+# que aparece en el nombre del job "Set short SHA", visible en los logs de
+# este workflow.
+# =============================================================================

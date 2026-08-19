@@ -1,0 +1,82 @@
+<?xml version="1.0"?>
+<!--.github/linters/pmd-ruleset.xml-->
+<ruleset name="Custom PMD Rules for Spring Boot"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 http://pmd.sourceforge.net/ruleset_2_0_0.xsd">
+
+    <description>Reglas PMD para proyecto Spring Boot Java 21</description>
+
+    <!-- Reglas recomendadas -->
+    <rule ref="category/java/bestpractices.xml">
+        <!-- Demasiado ruidosas como error para tests unitarios con estilo BDD; se degradan a warning más abajo -->
+        <exclude name="UnitTestShouldIncludeAssert"/>
+        <exclude name="UnitTestContainsTooManyAsserts"/>
+        <!-- Exige envolver cada log.debug/trace en un "if (log.isXEnabled())": en gran
+             parte obsoleto desde que SLF4J soporta placeholders "{}" con evaluación
+             perezosa; se degrada a warning más abajo -->
+        <exclude name="GuardLogStatement"/>
+        <!-- Se dispara en TODAS las clases utilitarias que imprimen a consola a
+             proposito (DateUtils.main() para pruebas manuales, StartupConfigPrinter,
+             ColorUtils, CurlLogger, FileDownloadUtil): no es un logger de negocio
+             que deberia usar SLF4J, es salida de consola intencional. -->
+        <exclude name="SystemPrintln"/>
+    </rule>
+
+    <rule ref="category/java/codestyle.xml">
+        <!-- Pedantes / cuestión de estilo; se degradan a warning más abajo en vez de eliminarse -->
+        <exclude name="MethodArgumentCouldBeFinal"/>
+        <exclude name="LocalVariableCouldBeFinal"/>
+        <exclude name="AtLeastOneConstructor"/>
+        <exclude name="ShortVariable"/>
+        <exclude name="LongVariable"/>
+        <exclude name="ShortClassName"/>
+        <exclude name="OnlyOneReturn"/>
+        <exclude name="TooManyStaticImports"/>
+        <!-- Los tests usan nombres en español tipo snake/camel mixto (ej. listar_devuelveLaVista...) -->
+        <exclude name="MethodNamingConventions"/>
+        <!-- Exige MAYUSCULAS para TODO campo static final: pero "log"/"logger" para
+             un Logger es la convención estándar en Spring/SLF4J en toda la industria;
+             se degrada a warning más abajo -->
+        <exclude name="FieldNamingConventions"/>
+    </rule>
+
+    <rule ref="category/java/design.xml">
+        <!-- Se auto-desactivaba con warning por falta de configuración; la excluimos explícitamente -->
+        <exclude name="LoosePackageCoupling"/>
+    </rule>
+
+    <rule ref="category/java/errorprone.xml">
+        <!-- Marca strings repetidos (ej: "error", "job", "data") como candidatos a
+             constante: útil a veces, pero muy ruidoso en controllers/jobs con
+             mensajes similares; se degrada a warning más abajo. Pertenece a
+             ESTA categoría (errorprone), no a bestpractices; referenciarla mal
+             hacía que PMD ni pudiera cargar el ruleset. -->
+        <exclude name="AvoidDuplicateLiterals"/>
+    </rule>
+    <rule ref="category/java/performance.xml"/>
+
+    <!-- ==================== REGLAS DEGRADADAS A WARNING ====================
+         Prioridad 5 = Info/Warning en PMD (1=más grave, 5=menos grave).
+         Se siguen mostrando en el reporte, junto al archivo y línea, pero no
+         se tratan como errores bloqueantes. -->
+    <rule ref="category/java/codestyle.xml/MethodArgumentCouldBeFinal"><priority>5</priority></rule>
+    <rule ref="category/java/codestyle.xml/LocalVariableCouldBeFinal"><priority>5</priority></rule>
+    <rule ref="category/java/codestyle.xml/AtLeastOneConstructor"><priority>5</priority></rule>
+    <rule ref="category/java/codestyle.xml/ShortVariable"><priority>5</priority></rule>
+    <rule ref="category/java/codestyle.xml/LongVariable"><priority>5</priority></rule>
+    <rule ref="category/java/codestyle.xml/ShortClassName"><priority>5</priority></rule>
+    <rule ref="category/java/codestyle.xml/OnlyOneReturn"><priority>5</priority></rule>
+    <rule ref="category/java/codestyle.xml/TooManyStaticImports"><priority>5</priority></rule>
+    <rule ref="category/java/codestyle.xml/MethodNamingConventions"><priority>5</priority></rule>
+    <rule ref="category/java/codestyle.xml/FieldNamingConventions"><priority>5</priority></rule>
+    <rule ref="category/java/bestpractices.xml/UnitTestShouldIncludeAssert"><priority>5</priority></rule>
+    <rule ref="category/java/bestpractices.xml/UnitTestContainsTooManyAsserts"><priority>5</priority></rule>
+    <rule ref="category/java/bestpractices.xml/GuardLogStatement"><priority>5</priority></rule>
+    <rule ref="category/java/bestpractices.xml/SystemPrintln"><priority>5</priority></rule>
+    <rule ref="category/java/errorprone.xml/AvoidDuplicateLiterals"><priority>5</priority></rule>
+
+    <!-- Desactivar reglas muy estrictas si quieres -->
+    <!-- <rule ref="category/java/design.xml/TooManyMethods" level="warning"/> -->
+
+</ruleset>

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <springProperty scope="context" name="appName" source="spring.application.name"/>
+
+
+    <!-- ══════════════════════════════════════════════════════════════
+         PERFIL DEV / LOCAL: consola legible para humanos
+         ══════════════════════════════════════════════════════════════ -->
+    <springProfile name="dev">
+        <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>%d{HH:mm:ss.SSS} %highlight(%-5level) [%thread] %cyan(%logger{36}) %X{traceId:-} %X{jobKey:-} - %msg%n</pattern>
+            </encoder>
+        </appender>
+        <root level="INFO">
+            <appender-ref ref="CONSOLE"/>
+        </root>
+    </springProfile>
+
+    <!-- ══════════════════════════════════════════════════════════════
+         PERFILES PRE y PROD: misma configuración -> JSON estructurado a
+         stdout (para Loki/ELK/Datadog vía el colector de contenedores)
+         + archivo rotativo como respaldo. Unificados en un solo bloque
+         para no mantener dos copias idénticas (antes estaban duplicados
+         y ya habían empezado a desincronizarse).
+         El LogstashEncoder incluye AUTOMÁTICAMENTE todo lo que haya en el
+         MDC (traceId, jobKey, httpMethod, etc.) como campos del JSON.
+         ══════════════════════════════════════════════════════════════ -->
+    <springProfile name="pre,prod">
+        <appender name="JSON_CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <customFields>{"app":"${appName}"}</customFields>
+                <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSSXXX</timestampPattern>
+            </encoder>
+        </appender>
+
+        <appender name="JSON_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+            <file>logs/quartz-jobs.log</file>
+            <!--
+                OJO: para combinar rotación por FECHA (%d) y por TAMAÑO (%i /
+                maxFileSize) hace falta SizeAndTimeBasedRollingPolicy, NO
+                TimeBasedRollingPolicy. Esta última ignora silenciosamente
+                <maxFileSize> y no soporta el token %i -> justo el error que
+                tirabas al arrancar ("contains an integer token converter,
+                i.e. %i, INCOMPATIBLE with this configuration").
+            -->
+            <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+                <fileNamePattern>logs/quartz-jobs-%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+                <maxFileSize>50MB</maxFileSize>
+                <maxHistory>30</maxHistory>
+                <totalSizeCap>2GB</totalSizeCap>
+            </rollingPolicy>
+            <encoder class="net.logstash.logback.encoder.LogstashEncoder">
+                <customFields>{"app":"${appName}"}</customFields>
+                <timestampPattern>yyyy-MM-dd'T'HH:mm:ss.SSSXXX</timestampPattern>
+            </encoder>
+        </appender>
+
+        <!-- Appender asíncrono: evita que el I/O de logging bloquee el hilo
+             que ejecuta el job/request (recomendado en producción). -->
+        <appender name="ASYNC_FILE" class="ch.qos.logback.classic.AsyncAppender">
+            <appender-ref ref="JSON_FILE"/>
+            <queueSize>512</queueSize>
+            <discardingThreshold>0</discardingThreshold>
+        </appender>
+
+        <root level="INFO">
+            <appender-ref ref="JSON_CONSOLE"/>
+            <appender-ref ref="ASYNC_FILE"/>
+        </root>
+    </springProfile>
+
+</configuration>

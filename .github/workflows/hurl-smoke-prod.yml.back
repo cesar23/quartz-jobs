@@ -1,0 +1,49 @@
+name: Smoke Tests - Producción
+
+on:
+  workflow_dispatch:               # disparo manual
+  workflow_run:                    # o después de tu workflow de deploy
+    workflows: ["Deploy to Production"]
+    types: [completed]
+
+jobs:
+  smoke-prod:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' || github.event_name == 'workflow_dispatch' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Hurl
+        run: |
+          curl -LO https://github.com/Orange-OpenSource/hurl/releases/latest/download/hurl_linux_amd64.tar.gz
+          tar -xzf hurl_linux_amd64.tar.gz
+          sudo mv hurl /usr/local/bin/
+
+      # Construye prod.env desde secrets — nunca se commitea
+      - name: Build prod.env
+        run: |
+          cat <<EOF > hurl/envs/prod.env
+          base_url=${{ secrets.PROD_BASE_URL }}
+          admin_user=${{ secrets.PROD_ADMIN_USER }}
+          admin_pass=${{ secrets.PROD_ADMIN_PASS }}
+          EOF
+
+      - name: Run smoke tests
+        env:
+          HURL_ENV: prod
+        run: bash hurl/scripts/run-ci.sh
+
+      - name: Publish smoke results
+        uses: dorny/test-reporter@v1
+        if: always()
+        with:
+          name: Hurl Smoke - Prod
+          path: target/hurl-junit.xml
+          reporter: java-junit
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Smoke tests fallaron en producción"
+          # Aquí puedes agregar notificación a Slack, email, etc.

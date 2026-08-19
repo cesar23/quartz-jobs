@@ -1,0 +1,681 @@
+{
+  "info": {
+    "name": "Quartz Jobs API",
+    "_postman_id": "quartz-jobs-api-v1",
+    "description": "Colección completa para gestionar Jobs de Quartz via API REST.\n\n## Cómo usar\n1. Importa esta colección en Postman\n2. Selecciona el environment 'Quartz Local'\n3. Asegúrate de que tu aplicación corre en localhost:8080\n4. Ejecuta las peticiones en el orden sugerido\n\n## Estructura\n- 📁 Jobs CRON — Jobs con horario fijo (expresión cron)\n- 📁 Jobs SIMPLE — Jobs con intervalo en milisegundos\n- 📁 Gestión — Pausar, reanudar, disparar, eliminar\n- 📁 Consultas — Listar y ver detalle de jobs",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string",
+      "description": "URL base de la aplicación"
+    }
+  ],
+  "item": [
+
+    {
+      "name": "📁 Jobs CRON (horario fijo)",
+      "description": "Jobs que se ejecutan según una expresión cron — hora fija, día específico, etc.",
+      "item": [
+
+        {
+          "name": "Crear EmailJob — cada día 8 AM",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobName\":        \"EmailDiario\",\n  \"jobGroup\":       \"EMAIL\",\n  \"jobClass\":       \"com.quartzjobs.jobs.EmailJob\",\n  \"cronExpression\": \"0 0 8 * * ?\",\n  \"data\": {\n    \"to\":      \"usuario@empresa.com\",\n    \"subject\": \"Reporte diario\",\n    \"body\":    \"Buenos días, aquí está el reporte diario automático.\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Crea un job que envía un email todos los días a las 8:00 AM.\n\n**Campos:**\n- `jobName` — nombre único del job dentro del grupo\n- `jobGroup` — agrupación lógica (ej: EMAIL, REPORTS, FILE)\n- `jobClass` — nombre completo de la clase Java del Job\n- `cronExpression` — cuándo ejecutarse (formato Quartz: 6 campos)\n- `data` — parámetros que recibirá el job en su JobDataMap\n\n**Expresión cron:** `0 0 8 * * ?`\n→ segundo=0, minuto=0, hora=8, cualquier día del mes, cualquier mes, cualquier día de semana"
+          },
+          "response": [
+            {
+              "name": "200 — Job creado correctamente",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"OK\",\n  \"message\": \"Job programado: EmailDiario\"\n}"
+            },
+            {
+              "name": "400 — Clase no encontrada",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"error\": \"Clase no encontrada: com.quartzjobs.jobs.EmailJob\"\n}"
+            },
+            {
+              "name": "500 — Job duplicado",
+              "status": "Internal Server Error",
+              "code": 500,
+              "body": "{\n  \"error\": \"Unable to store Job : 'EMAIL.EmailDiario', because one already exists with this identification.\"\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Crear EmailJob — lunes a viernes 8 AM",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobName\":        \"EmailLaboral\",\n  \"jobGroup\":       \"EMAIL\",\n  \"jobClass\":       \"com.quartzjobs.jobs.EmailJob\",\n  \"cronExpression\": \"0 0 8 * * MON-FRI\",\n  \"data\": {\n    \"to\":      \"equipo@empresa.com\",\n    \"subject\": \"Inicio de jornada\",\n    \"body\":    \"Buenos días equipo, comenzamos la jornada laboral.\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Envía un email solo los días laborables (lunes a viernes) a las 8 AM.\n\n**Expresión cron:** `0 0 8 * * MON-FRI`\n→ Solo se ejecuta de lunes a viernes, ignorando sábado y domingo."
+          },
+          "response": []
+        },
+
+        {
+          "name": "Crear EmailJob — primer día del mes",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobName\":        \"EmailMensual\",\n  \"jobGroup\":       \"EMAIL\",\n  \"jobClass\":       \"com.quartzjobs.jobs.EmailJob\",\n  \"cronExpression\": \"0 0 9 1 * ?\",\n  \"data\": {\n    \"to\":      \"gerencia@empresa.com\",\n    \"subject\": \"Resumen mensual\",\n    \"body\":    \"Adjunto el resumen del mes anterior.\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Envía un email el primer día de cada mes a las 9 AM.\n\n**Expresión cron:** `0 0 9 1 * ?`\n→ segundo=0, minuto=0, hora=9, día del mes=1, cualquier mes"
+          },
+          "response": []
+        },
+
+        {
+          "name": "Crear ReportJob — cada hora en punto",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobName\":        \"ReportHorario\",\n  \"jobGroup\":       \"REPORTS\",\n  \"jobClass\":       \"com.quartzjobs.jobs.ReportJob\",\n  \"cronExpression\": \"0 0 * * * ?\"\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Ejecuta el ReportJob al inicio de cada hora (00 minutos, 00 segundos).\n\n**Expresión cron:** `0 0 * * * ?`\n→ Cada hora en punto: 8:00, 9:00, 10:00...\n\nNota: `data` es opcional. Si no se pasa, el job no tendrá datos extra en su JobDataMap."
+          },
+          "response": []
+        },
+
+        {
+          "name": "Crear FileWriterJob — cada minuto (para pruebas)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobName\":        \"RegistroCronTest\",\n  \"jobGroup\":       \"FILE\",\n  \"jobClass\":       \"com.quartzjobs.jobs.FileWriterJob\",\n  \"cronExpression\": \"0 * * * * ?\",\n  \"data\": {\n    \"filePath\": \"logs/test-cron.txt\",\n    \"extra\":    \"Ejecución CRON de prueba\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Escribe una línea en el fichero cada minuto. Ideal para probar que el job funciona sin esperar mucho tiempo.\n\n**Expresión cron:** `0 * * * * ?`\n→ Cada minuto: :00 de cada minuto\n\n**Resultado en logs/test-cron.txt:**\n```\n[2026-03-10 19:30:00] Ejecución CRON de prueba\n[2026-03-10 19:31:00] Ejecución CRON de prueba\n```"
+          },
+          "response": []
+        }
+
+      ]
+    },
+
+    {
+      "name": "📁 Jobs SIMPLE (intervalo fijo)",
+      "description": "Jobs que se repiten cada N milisegundos. Se disparan inmediatamente al crearse y luego cada intervalo.",
+      "item": [
+
+        {
+          "name": "Crear FileWriterJob — cada 3 minutos",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobName\":    \"RegistroFecha\",\n  \"jobGroup\":   \"FILE\",\n  \"jobClass\":   \"com.quartzjobs.jobs.FileWriterJob\",\n  \"intervalMs\": 180000,\n  \"data\": {\n    \"filePath\": \"logs/registro.txt\",\n    \"extra\":    \"Registro automático cada 3 minutos\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Escribe una línea con fecha y hora en `logs/registro.txt` cada 3 minutos.\n\n**Conversión:** 3 min × 60 seg × 1000 ms = **180.000 ms**\n\n**Fichero generado (logs/registro.txt):**\n```\n[2026-03-10 19:30:00] Registro automático cada 3 minutos\n[2026-03-10 19:33:00] Registro automático cada 3 minutos\n[2026-03-10 19:36:00] Registro automático cada 3 minutos\n```\n\nEl directorio `logs/` se crea automáticamente si no existe."
+          },
+          "response": [
+            {
+              "name": "200 — Job creado correctamente",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"OK\",\n  \"message\": \"Job programado: RegistroFecha\"\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Crear FileWriterJob — cada 30 segundos (prueba rápida)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobName\":    \"RegistroRapido\",\n  \"jobGroup\":   \"FILE\",\n  \"jobClass\":   \"com.quartzjobs.jobs.FileWriterJob\",\n  \"intervalMs\": 30000,\n  \"data\": {\n    \"filePath\": \"logs/registro-rapido.txt\",\n    \"extra\":    \"Prueba rápida cada 30 segundos\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Útil para verificar que el job funciona sin esperar varios minutos.\n\n**Conversión:** 30 seg × 1000 ms = **30.000 ms**\n\n**Referencia de intervalos comunes:**\n- 10 segundos = 10.000\n- 1 minuto = 60.000\n- 5 minutos = 300.000\n- 15 minutos = 900.000\n- 30 minutos = 1.800.000\n- 1 hora = 3.600.000"
+          },
+          "response": []
+        },
+
+        {
+          "name": "Crear ReportJob — cada hora",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobName\":    \"ReporteCadaHora\",\n  \"jobGroup\":   \"REPORTS\",\n  \"jobClass\":   \"com.quartzjobs.jobs.ReportJob\",\n  \"intervalMs\": 3600000\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Ejecuta el ReportJob cada hora exacta desde que se crea.\n\n**Conversión:** 1 hora × 60 min × 60 seg × 1000 ms = **3.600.000 ms**\n\nEste job no tiene `data` porque ReportJob no requiere parámetros — contiene su propia lógica interna."
+          },
+          "response": []
+        },
+
+        {
+          "name": "Crear EmailJob — cada 6 horas",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobName\":    \"EmailCada6Horas\",\n  \"jobGroup\":   \"EMAIL\",\n  \"jobClass\":   \"com.quartzjobs.jobs.EmailJob\",\n  \"intervalMs\": 21600000,\n  \"data\": {\n    \"to\":      \"monitoreo@empresa.com\",\n    \"subject\": \"Chequeo de sistema\",\n    \"body\":    \"El sistema está funcionando correctamente.\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "Envía un email de monitoreo cada 6 horas.\n\n**Conversión:** 6 h × 3.600.000 ms = **21.600.000 ms**"
+          },
+          "response": []
+        }
+
+      ]
+    },
+
+    {
+      "name": "📁 Gestión de Jobs",
+      "description": "Pausar, reanudar, disparar manualmente y eliminar jobs existentes.",
+      "item": [
+
+        {
+          "name": "Pausar job — FILE/RegistroFecha",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/FILE/RegistroFecha/pause",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "FILE", "RegistroFecha", "pause"]
+            },
+            "description": "Pausa el job `RegistroFecha` del grupo `FILE`.\n\nEl job deja de ejecutarse pero **NO se elimina** de Quartz ni de la base de datos. Su configuración queda guardada y se puede reanudar en cualquier momento con `/resume`.\n\n**Cuándo usar pause:**\n- Mantenimiento del sistema\n- Deshabilitar temporalmente sin perder la configuración\n- El servidor de email está caído y no quieres que el job falle\n\n**Estado resultante:** `PAUSED`"
+          },
+          "response": [
+            {
+              "name": "200 — Job pausado",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"PAUSADO\",\n  \"job\": \"RegistroFecha\"\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Pausar job — EMAIL/EmailDiario",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/EMAIL/EmailDiario/pause",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "EMAIL", "EmailDiario", "pause"]
+            },
+            "description": "Pausa el job de email diario. Útil cuando el servidor SMTP está en mantenimiento."
+          },
+          "response": []
+        },
+
+        {
+          "name": "Reanudar job — FILE/RegistroFecha",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/FILE/RegistroFecha/resume",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "FILE", "RegistroFecha", "resume"]
+            },
+            "description": "Reanuda el job `RegistroFecha` que estaba pausado.\n\nQuartz retoma el schedule original desde ese momento. Los disparos perdidos mientras estuvo pausado son **ignorados** (política `DoNothing`) — no se ejecutan en cascada al reanudar.\n\n**Estado resultante:** `NORMAL`"
+          },
+          "response": [
+            {
+              "name": "200 — Job reanudado",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"REANUDADO\",\n  \"job\": \"RegistroFecha\"\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Reanudar job — EMAIL/EmailDiario",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/EMAIL/EmailDiario/resume",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "EMAIL", "EmailDiario", "resume"]
+            },
+            "description": "Reanuda el job de email diario tras el mantenimiento del SMTP."
+          },
+          "response": []
+        },
+
+        {
+          "name": "Disparar ahora — FILE/RegistroFecha",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/FILE/RegistroFecha/trigger",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "FILE", "RegistroFecha", "trigger"]
+            },
+            "description": "Ejecuta el job `RegistroFecha` **inmediatamente**, sin esperar al próximo intervalo.\n\nEl schedule original **NO se altera** — si estaba programado para ejecutarse cada 3 minutos, seguirá haciéndolo con normalidad. Esta ejecución manual es adicional.\n\n**Cuándo usar trigger:**\n- Probar que el job funciona correctamente\n- Necesidad urgente fuera del horario programado\n- Recuperación manual tras un error previo\n\n**Estado resultante:** el job se ejecuta una vez y vuelve a `NORMAL`"
+          },
+          "response": [
+            {
+              "name": "200 — Job disparado",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"DISPARADO\",\n  \"job\": \"RegistroFecha\"\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Disparar ahora — EMAIL/EmailDiario",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/EMAIL/EmailDiario/trigger",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "EMAIL", "EmailDiario", "trigger"]
+            },
+            "description": "Envía el email ahora mismo sin esperar a las 8 AM. Útil para probar que el SMTP funciona correctamente."
+          },
+          "response": []
+        },
+
+        {
+          "name": "Disparar ahora — REPORTS/ReporteCadaHora",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/REPORTS/ReporteCadaHora/trigger",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "REPORTS", "ReporteCadaHora", "trigger"]
+            },
+            "description": "Ejecuta el ReportJob ahora mismo, fuera de su horario programado."
+          },
+          "response": []
+        },
+
+        {
+          "name": "Eliminar job — FILE/RegistroFecha",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/FILE/RegistroFecha",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "FILE", "RegistroFecha"]
+            },
+            "description": "⚠️ **ACCIÓN PERMANENTE** — Elimina el job `RegistroFecha` y su trigger de Quartz.\n\nQuartz borra los registros completamente de las tablas `QRTZ_JOB_DETAILS` y `QRTZ_TRIGGERS` de la base de datos. **No se puede deshacer.**\n\n**Cuándo usar delete:**\n- El job ya no es necesario\n- Quieres cambiar su configuración (delete + POST con nueva config)\n- Limpieza de jobs de prueba\n\n**Si solo quieres detenerlo temporalmente → usa `/pause`**"
+          },
+          "response": [
+            {
+              "name": "200 — Job eliminado",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ELIMINADO\",\n  \"job\": \"RegistroFecha\"\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Eliminar job — EMAIL/EmailDiario",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/EMAIL/EmailDiario",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "EMAIL", "EmailDiario"]
+            },
+            "description": "Elimina permanentemente el job de email diario."
+          },
+          "response": []
+        },
+
+        {
+          "name": "Eliminar job — REPORTS/ReporteCadaHora",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/REPORTS/ReporteCadaHora",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "REPORTS", "ReporteCadaHora"]
+            },
+            "description": "Elimina permanentemente el ReportJob."
+          },
+          "response": []
+        }
+
+      ]
+    },
+
+    {
+      "name": "📁 Consultas",
+      "description": "Listar todos los jobs o ver el detalle de uno específico.",
+      "item": [
+
+        {
+          "name": "Listar todos los jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "description": "Devuelve todos los jobs registrados en Quartz con su estado actual.\n\n**Campos de la respuesta:**\n- `name` — nombre del job\n- `group` — grupo al que pertenece\n- `jobClass` — clase Java que implementa la tarea\n- `data` — parámetros del job (los pasados en `data` al crearlo)\n- `status` — estado actual: `NORMAL`, `PAUSED`, `BLOCKED`, `ERROR`\n- `nextFire` — próxima ejecución programada\n- `prevFire` — última ejecución (null si nunca se ha ejecutado)\n- `cronExpr` — expresión cron (solo si es CronTrigger)\n- `intervalMs` — intervalo en ms (solo si es SimpleTrigger)\n- `timesExecuted` — número de veces ejecutado (solo SimpleTrigger)"
+          },
+          "response": [
+            {
+              "name": "200 — Lista de jobs",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"name\": \"RegistroFecha\",\n    \"group\": \"FILE\",\n    \"jobClass\": \"com.quartzjobs.jobs.FileWriterJob\",\n    \"data\": {\n      \"filePath\": \"logs/registro.txt\",\n      \"extra\": \"Registro automático cada 3 minutos\"\n    },\n    \"status\": \"NORMAL\",\n    \"nextFire\": \"2026-03-10T19:33:00.000+00:00\",\n    \"prevFire\": \"2026-03-10T19:30:00.000+00:00\",\n    \"intervalMs\": 180000,\n    \"timesExecuted\": 3\n  },\n  {\n    \"name\": \"EmailDiario\",\n    \"group\": \"EMAIL\",\n    \"jobClass\": \"com.quartzjobs.jobs.EmailJob\",\n    \"data\": {\n      \"to\": \"usuario@empresa.com\",\n      \"subject\": \"Reporte diario\",\n      \"body\": \"Buenos días...\"\n    },\n    \"status\": \"NORMAL\",\n    \"nextFire\": \"2026-03-11T08:00:00.000+00:00\",\n    \"prevFire\": \"2026-03-10T08:00:00.000+00:00\",\n    \"cronExpr\": \"0 0 8 * * ?\"\n  }\n]"
+            },
+            {
+              "name": "200 — Sin jobs registrados",
+              "status": "OK",
+              "code": 200,
+              "body": "[]"
+            }
+          ]
+        },
+
+        {
+          "name": "Ver detalle — FILE/RegistroFecha",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/FILE/RegistroFecha",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "FILE", "RegistroFecha"]
+            },
+            "description": "Devuelve el detalle completo del job `RegistroFecha` del grupo `FILE`.\n\nFormato URL: `/api/jobs/{group}/{name}`\n- `group` — el `jobGroup` que se usó al crearlo\n- `name` — el `jobName` que se usó al crearlo"
+          },
+          "response": [
+            {
+              "name": "200 — Detalle del job",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"name\": \"RegistroFecha\",\n  \"group\": \"FILE\",\n  \"jobClass\": \"com.quartzjobs.jobs.FileWriterJob\",\n  \"data\": {\n    \"filePath\": \"logs/registro.txt\",\n    \"extra\": \"Registro automático cada 3 minutos\"\n  },\n  \"status\": \"NORMAL\",\n  \"nextFire\": \"2026-03-10T19:33:00.000+00:00\",\n  \"prevFire\": \"2026-03-10T19:30:00.000+00:00\",\n  \"intervalMs\": 180000,\n  \"timesExecuted\": 5\n}"
+            },
+            {
+              "name": "404 — Job no encontrado",
+              "status": "Not Found",
+              "code": 404,
+              "body": ""
+            }
+          ]
+        },
+
+        {
+          "name": "Ver detalle — EMAIL/EmailDiario",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/EMAIL/EmailDiario",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "EMAIL", "EmailDiario"]
+            },
+            "description": "Devuelve el detalle del job de email diario, incluyendo la expresión cron y la próxima ejecución."
+          },
+          "response": [
+            {
+              "name": "200 — Detalle del EmailJob CRON",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"name\": \"EmailDiario\",\n  \"group\": \"EMAIL\",\n  \"jobClass\": \"com.quartzjobs.jobs.EmailJob\",\n  \"data\": {\n    \"to\": \"usuario@empresa.com\",\n    \"subject\": \"Reporte diario\",\n    \"body\": \"Buenos días...\"\n  },\n  \"status\": \"NORMAL\",\n  \"nextFire\": \"2026-03-11T08:00:00.000+00:00\",\n  \"prevFire\": \"2026-03-10T08:00:00.000+00:00\",\n  \"cronExpr\": \"0 0 8 * * ?\"\n}"
+            }
+          ]
+        },
+
+        {
+          "name": "Ver detalle — REPORTS/ReporteCadaHora",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/REPORTS/ReporteCadaHora",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "REPORTS", "ReporteCadaHora"]
+            },
+            "description": "Devuelve el detalle del ReportJob con intervalo simple."
+          },
+          "response": []
+        }
+
+      ]
+    },
+
+    {
+      "name": "📁 Flujo completo de ejemplo",
+      "description": "Secuencia ordenada para probar el ciclo completo: crear → verificar → pausar → reanudar → disparar → eliminar.",
+      "item": [
+
+        {
+          "name": "1. Crear job de prueba",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jobName\":    \"JobPrueba\",\n  \"jobGroup\":   \"TEST\",\n  \"jobClass\":   \"com.quartzjobs.jobs.FileWriterJob\",\n  \"intervalMs\": 30000,\n  \"data\": {\n    \"filePath\": \"logs/prueba.txt\",\n    \"extra\":    \"Línea de prueba del flujo completo\"\n  }\n}",
+              "options": { "raw": { "language": "json" } }
+            },
+            "description": "**Paso 1** — Crea un job de prueba que se ejecuta cada 30 segundos.\n\nEjecuta los pasos en orden para ver el ciclo de vida completo."
+          },
+          "response": []
+        },
+
+        {
+          "name": "2. Verificar que se creó",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/TEST/JobPrueba",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "TEST", "JobPrueba"]
+            },
+            "description": "**Paso 2** — Verifica que el job existe y su estado es `NORMAL`."
+          },
+          "response": []
+        },
+
+        {
+          "name": "3. Disparar manualmente",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/TEST/JobPrueba/trigger",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "TEST", "JobPrueba", "trigger"]
+            },
+            "description": "**Paso 3** — Ejecuta el job ahora mismo. Revisa que se escribió una línea en `logs/prueba.txt`."
+          },
+          "response": []
+        },
+
+        {
+          "name": "4. Pausar el job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/TEST/JobPrueba/pause",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "TEST", "JobPrueba", "pause"]
+            },
+            "description": "**Paso 4** — Pausa el job. Estado cambia a `PAUSED`."
+          },
+          "response": []
+        },
+
+        {
+          "name": "5. Verificar estado PAUSED",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/TEST/JobPrueba",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "TEST", "JobPrueba"]
+            },
+            "description": "**Paso 5** — Confirma que el estado es `PAUSED` y que `nextFire` sigue siendo válido (el schedule no se perdió)."
+          },
+          "response": []
+        },
+
+        {
+          "name": "6. Reanudar el job",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/TEST/JobPrueba/resume",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "TEST", "JobPrueba", "resume"]
+            },
+            "description": "**Paso 6** — Reanuda el job. Estado vuelve a `NORMAL`."
+          },
+          "response": []
+        },
+
+        {
+          "name": "7. Ver todos los jobs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs"]
+            },
+            "description": "**Paso 7** — Lista todos los jobs para ver el estado general del sistema."
+          },
+          "response": []
+        },
+
+        {
+          "name": "8. Eliminar job de prueba",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/jobs/TEST/JobPrueba",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "jobs", "TEST", "JobPrueba"]
+            },
+            "description": "**Paso 8** — Limpieza final. Elimina el job de prueba permanentemente."
+          },
+          "response": []
+        }
+
+      ]
+    }
+
+  ]
+}

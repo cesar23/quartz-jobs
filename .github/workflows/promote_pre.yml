@@ -1,0 +1,115 @@
+# .github/workflows/promote_pre.yml
+# =============================================================================
+# WORKFLOW: Promote to PRE and Deploy
+# =============================================================================
+# Se dispara A MANO desde Actions -> Run workflow, indicando el SHA corto de
+# la imagen "dev-<sha>" que build.yml ya construyo y publico.
+#
+# NO reconstruye nada: "docker buildx imagetools create" copia el
+# manifiesto/digest de "dev-<sha>" hacia "pre" (y "pre-<sha>" para
+# trazabilidad). Es un simple re-etiquetado en el registry.
+#
+# El job "deploy" corre directamente en el runner self-hosted instalado en
+# el propio VPS (usuario gha-runner, miembro del grupo docker) -- por eso
+# los comandos son "run:" directos y las URLs de healthcheck usan
+# "localhost" en vez de VPS_HOST.
+#
+# Requiere en el VPS la carpeta /opt/app_pre con:
+#   docker-compose.yml   (el mismo del repo -- SIN overlay por ambiente,
+#                          las diferencias por ambiente ya las resuelve
+#                          --env-file, ver docker-compose.yml)
+#   .env.pre
+# =============================================================================
+
+name: Promote to PRE and Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "SHA corto de la imagen dev a promover (ej. a1b2c3d, visible en los logs de build.yml)"
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  GITHUB_TOKEN_PAT: ${{ secrets.TOKEN_GITHUB }}
+  VPS_HOST: ${{ vars.VPS_HOST }}
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    name: Retag dev -> pre
+    permissions:
+      packages: write
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ env.GITHUB_TOKEN_PAT }}
+
+      - name: Retag dev-<sha> como pre (sin rebuild, mismo digest)
+        run: |
+          docker buildx imagetools create \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pre \
+            -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pre-${{ github.event.inputs.sha }} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.event.inputs.sha }}
+
+  deploy:
+    needs: promote
+    runs-on: self-hosted
+    name: Deploy a Staging (self-hosted)
+    environment:
+      name: staging
+
+    steps:
+      - name: CHECK SERVER (estado antes del deploy)
+        run: |
+          echo "❗CHECK."
+          curl -f --connect-timeout 5 --max-time 10 http://${{ env.VPS_HOST }}:18081/actuator/health || echo "⚠️ No responde (puede ser normal si es el primer deploy o el contenedor estaba caído)"
+
+      - name: Deploy en /opt/app_pre
+        # Antes referenciaba "docker-compose.pre.yml" (overlay que no
+        # existe en el VPS -- resto de una version anterior del pipeline).
+        # El docker-compose.yml actual ya resuelve las diferencias por
+        # ambiente via --env-file, no necesita overlay.
+        run: |
+          cd /opt/app_pre
+          docker compose -f docker-compose.yml --env-file .env.pre pull
+          docker compose -f docker-compose.yml --env-file .env.pre up -d --remove-orphans
+          docker image prune -f
+
+      - name: PRE Revisión de contenedores
+        run: |
+          echo "❗Revisión de contenedores..."
+          sleep 5
+          docker ps -a
+
+      - name: Health Check Staging
+        # -------------------------------------------------------------------
+        # 20 reintentos de 20s tras 30s iniciales (~230s en total). Si
+        # falla, se vuelcan los logs del contenedor real de la app.
+        # -------------------------------------------------------------------
+        run: |
+          echo "⏳ Esperando inicio de la aplicación..."
+          sleep 30
+          for i in $(seq 1 20); do
+            if curl -f http://localhost:18081/actuator/health; then
+              echo "✅ Staging está saludable!"
+              exit 0
+            fi
+            echo "⚠️ Intento $i/20 fallido, reintentando en 20s..."
+            sleep 20
+          done
+          echo "❌ Staging no respondió tras 20 intentos."
+          echo "--- Logs del contenedor app (últimas 80 líneas) ---"
+          docker logs $(docker ps -q --filter 'name=jobs-pre-app') --tail 80 || true
+          exit 1
+
+# =============================================================================
+# RESULTADO: la imagen dev-<sha> queda tambien etiquetada como "pre" y
+# "pre-<sha>" en ghcr.io (mismo digest, cero recompilacion), y desplegada
+# en /opt/app_pre del VPS.
+# =============================================================================

@@ -1,0 +1,96 @@
+# ============================================================
+#  Quartz Jobs - configuración base (común a todos los perfiles)
+# ============================================================
+
+spring:
+  application:
+    name: quartz-jobs
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      # Controlable por variable de entorno para el bootstrap inicial de
+      # cada BD nueva, sin tener que tocar este fichero cada vez.
+      # - "never"  (default): NO toca el esquema. Uso normal del dia a dia.
+      # - "always": crea las tablas QRTZ_* SI NO EXISTEN la primera vez...
+      #   pero en corridas siguientes puede DROPEAR y recrear (el script
+      #   de Quartz suele traer "DROP TABLE IF EXISTS" antes del CREATE),
+      #   perdiendo todos los jobs/triggers persistidos. Por eso el
+      #   default es "never" y "always" es algo que se activa a proposito,
+      #   no algo que quede prendido en un .env.dev de forma permanente.
+      #
+      # Flujo recomendado para una BD nueva (ej: contenedor Docker recien
+      # creado, o un ambiente nuevo):
+      #   1) QUARTZ_INIT_SCHEMA=always -> un solo arranque, crea las tablas
+      #   2) Volver a QUARTZ_INIT_SCHEMA=never (o quitar la variable, ya
+      #      que "never" es el default) -> todos los arranques siguientes
+      initialize-schema: ${QUARTZ_INIT_SCHEMA:never}
+    properties:
+      org:
+        quartz:
+          scheduler:
+            instanceName: QuartzJobsScheduler
+            instanceId: AUTO
+          threadPool:
+            threadCount: ${QUARTZ_THREAD_COUNT:5}
+
+  # --- Java Mail Sender ----------------------------------------
+  # Todas las credenciales se leen de variables de entorno.
+  # NUNCA pongas usuario/contraseña reales en este fichero ni los subas
+  # a un repositorio. Ver .env.dev.example para la plantilla.
+  mail:
+    host: ${MAIL_HOST:smtp.gmail.com}
+    port: ${MAIL_PORT:587}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+            required: true
+
+server:
+  port: ${SERVER_PORT:8080}
+
+# --- Documentación OpenAPI / Swagger UI ---------------------------
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+  api-docs:
+    path: /v3/api-docs
+
+# --- Actuator: exponer solo lo necesario --------------------------
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+# --- API interna de consulta de logs (Opción B) -------------------
+# Protegida por InternalApiTokenFilter — requiere header "X-Internal-Token"
+# en cualquier request a /internal/**. Ver README_LOG_QUERY.md.
+app:
+  built-version: ${APP_VERSION_BUILT:v1.0.1}
+  internal-api:
+    token: ${INTERNAL_API_TOKEN:}
+    log-file: logs/quartz-jobs.log
+
+# --- Logging -------------------------------------------------
+logging:
+  level:
+    com.quartzjobs: ${LOG_LEVEL:INFO}
+    org.quartz: INFO

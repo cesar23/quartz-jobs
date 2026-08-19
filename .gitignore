@@ -1,0 +1,85 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+tmp_jar_check
+megalinter-reports
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+# no incluir
+!.docker
+
+# ============================================
+# CREDENCIALES Y VARIABLES DE ENTORNO
+# ============================================
+.env.dev
+.env.*
+!.env.example
+!.env.*.example
+!.env.*.local
+!.env.development.example
+
+
+
+# ============================================
+# Incluir ficheros
+# ============================================
+!src/main/resources/templates/admin/logs
+
+
+# ============================================
+# LOGS
+# ============================================
+*.log
+logs/app/*
+www/html/public_html/solu_log.log
+www/html/public_html/solu_log_error.log
+www/html/public_html/php-errors.log
+
+# ============================================
+# DOCKER
+# ============================================
+.docker/volumes/
+.docker/mysql/
+
+
+
+# generacion de docuemntos
+docs_md
+docs_md*
+docs_md/*
+docs_docker
+docs_md/*.md
+docs_md_optimize
+project_structure_docs
+
+# backups de la db
+.backup

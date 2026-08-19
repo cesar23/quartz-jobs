@@ -1,0 +1,24 @@
+# ============================================================
+#  Perfil "dev": base de datos H2 embebida en fichero
+# ============================================================
+
+spring:
+  datasource:
+#    url: jdbc:h2:file:./data/quartzjobs;DB_CLOSE_ON_EXIT=FALSE
+    url: jdbc:h2:file:./data/quartzjobs;AUTO_SERVER=TRUE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    show-sql: true
+
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+logging:
+  level:
+    com.quartzjobs: DEBUG
