@@ -67,8 +67,8 @@ public final class JsonUtil {
 
         // ✅ No fallar si hay propiedades desconocidas al deserializar
         mapper.configure(
-            com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
-            false);
+                com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
+                false);
 
         // ✅ Formatear fechas como ISO-8601 en lugar de timestamps
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
@@ -148,9 +148,9 @@ public final class JsonUtil {
             return MAPPER.readValue(json, clazz);
         } catch (JsonProcessingException e) {
             log.error(
-                "❌ Error al convertir JSON a objeto {}: {}",
-                clazz.getSimpleName(),
-                e.getMessage());
+                    "❌ Error al convertir JSON a objeto {}: {}",
+                    clazz.getSimpleName(),
+                    e.getMessage());
             return null;
         }
     }
@@ -251,12 +251,12 @@ public final class JsonUtil {
 
         try {
             return MAPPER.readValue(
-                json, MAPPER.getTypeFactory().constructCollectionType(List.class, clazz));
+                    json, MAPPER.getTypeFactory().constructCollectionType(List.class, clazz));
         } catch (JsonProcessingException e) {
             log.error(
-                "❌ Error al convertir JSON a List<{}>: {}",
-                clazz.getSimpleName(),
-                e.getMessage());
+                    "❌ Error al convertir JSON a List<{}>: {}",
+                    clazz.getSimpleName(),
+                    e.getMessage());
             return List.of();
         }
     }
@@ -422,7 +422,7 @@ public final class JsonUtil {
      *     JsonUtil.mergeMaps(base, update); // {name=Juan, age=31, city=Lima}
      */
     public static Map<String, Object> mergeMaps(
-        Map<String, Object> map1, Map<String, Object> map2) {
+            Map<String, Object> map1, Map<String, Object> map2) {
         Map<String, Object> result = new HashMap<>(map1);
         result.putAll(map2);
         return result;
@@ -503,7 +503,7 @@ public final class JsonUtil {
 
     /** Crea un Map con tres pares clave-valor. */
     public static Map<String, Object> of(
-        String k1, Object v1, String k2, Object v2, String k3, Object v3) {
+            String k1, Object v1, String k2, Object v2, String k3, Object v3) {
         Map<String, Object> map = new HashMap<>();
         map.put(k1, v1);
         map.put(k2, v2);

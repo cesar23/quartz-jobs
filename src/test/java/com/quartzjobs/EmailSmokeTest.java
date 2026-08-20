@@ -21,6 +21,8 @@ package com.quartzjobs;
 // El script lee el archivo .env.dev de la raíz del proyecto (mismo formato que usas
 // con spring-dotenv), así no tienes que exportar nada manualmente.
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+
 import jakarta.mail.*;
 import jakarta.mail.internet.InternetAddress;
 import jakarta.mail.internet.MimeMessage;
@@ -33,7 +35,6 @@ import java.util.Map;
 import java.util.Properties;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public class EmailSmokeTest {
 
@@ -53,8 +54,8 @@ public class EmailSmokeTest {
     void loadDotEnvParsesKeyValuePairs(@TempDir Path tempDir) throws Exception {
         Path envFile = tempDir.resolve(".env.test");
         Files.writeString(
-            envFile,
-            """
+                envFile,
+                """
             # comment
             MAIL_HOST=smtp.gmail.com
             MAIL_PORT=587
@@ -89,7 +90,7 @@ public class EmailSmokeTest {
 
         if (username == null || username.isBlank() || password == null || password.isBlank()) {
             System.out.println(
-                "❌ Faltan MAIL_USERNAME o MAIL_PASSWORD en el .env.dev (raíz del proyecto).");
+                    "❌ Faltan MAIL_USERNAME o MAIL_PASSWORD en el .env.dev (raíz del proyecto).");
             return;
         }
 
@@ -105,14 +106,14 @@ public class EmailSmokeTest {
         props.put("mail.smtp.writetimeout", "10000");
 
         Session session =
-            Session.getInstance(
-                props,
-                new Authenticator() {
-                    @Override
-                    protected PasswordAuthentication getPasswordAuthentication() {
-                        return new PasswordAuthentication(username, password);
-                    }
-                });
+                Session.getInstance(
+                        props,
+                        new Authenticator() {
+                            @Override
+                            protected PasswordAuthentication getPasswordAuthentication() {
+                                return new PasswordAuthentication(username, password);
+                            }
+                        });
 
         try {
             System.out.println("→ Conectando y autenticando...");
@@ -122,18 +123,18 @@ public class EmailSmokeTest {
             message.setRecipients(Message.RecipientType.TO, InternetAddress.parse(username));
             message.setSubject("[quartz-jobs] Test SMTP OK");
             message.setText(
-                "Este correo confirma que MAIL_USERNAME y MAIL_PASSWORD "
-                    + "del .env.dev autentican correctamente contra "
-                    + host
-                    + ":"
-                    + port
-                    + ".");
+                    "Este correo confirma que MAIL_USERNAME y MAIL_PASSWORD "
+                            + "del .env.dev autentican correctamente contra "
+                            + host
+                            + ":"
+                            + port
+                            + ".");
 
             Transport.send(message);
 
             System.out.println("✅ ÉXITO: autenticación correcta y correo enviado a " + username);
             System.out.println(
-                "   Revisa esa bandeja de entrada (o Spam) para confirmar la llegada.");
+                    "   Revisa esa bandeja de entrada (o Spam) para confirmar la llegada.");
 
         } catch (AuthenticationFailedException e) {
             System.out.println("❌ FALLÓ LA AUTENTICACIÓN: " + e.getMessage());
@@ -146,7 +147,7 @@ public class EmailSmokeTest {
                 System.out.println("   → Verifica que copiaste el App Password sin espacios.");
             } else {
                 System.out.println(
-                    "   → Revisa usuario/contraseña y que la verificación en 2 pasos esté activa.");
+                        "   → Revisa usuario/contraseña y que la verificación en 2 pasos esté activa.");
             }
         } catch (MessagingException e) {
             System.out.println("❌ ERROR DE CONEXIÓN/ENVÍO: " + e.getMessage());
@@ -169,18 +170,18 @@ public class EmailSmokeTest {
                 String value = line.substring(idx + 1).trim();
                 // quita comillas si las tiene
                 if (value.length() >= 2
-                    && (value.startsWith("\"") && value.endsWith("\"")
-                    || value.startsWith("'") && value.endsWith("'"))) {
+                        && (value.startsWith("\"") && value.endsWith("\"")
+                                || value.startsWith("'") && value.endsWith("'"))) {
                     value = value.substring(1, value.length() - 1);
                 }
                 map.put(key, value);
             }
         } catch (Exception e) {
             System.out.println(
-                "⚠️  No se pudo leer .env.dev ("
-                    + e.getMessage()
-                    + "). "
-                    + "Asegúrate de ejecutar este test desde la raíz del proyecto.");
+                    "⚠️  No se pudo leer .env.dev ("
+                            + e.getMessage()
+                            + "). "
+                            + "Asegúrate de ejecutar este test desde la raíz del proyecto.");
         }
         return map;
     }

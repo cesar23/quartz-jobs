@@ -22,7 +22,7 @@ public class StringUtil {
 
     private static final Pattern NON_DESIRED_CHARS = Pattern.compile("[^\\w\\s\\-]");
     private static final Pattern SPACES_AND_UNDERSCORES =
-        Pattern.compile("[\\s_\\-]+", Pattern.UNICODE_CHARACTER_CLASS);
+            Pattern.compile("[\\s_\\-]+", Pattern.UNICODE_CHARACTER_CLASS);
     private static final Pattern LEADING_TRAILING_DASHES = Pattern.compile("^-+|-+$");
 
     /**
@@ -66,7 +66,7 @@ public class StringUtil {
                 break;
             default:
                 throw new IllegalArgumentException(
-                    "Parámetro 'caseFormat' inválido. Usa: 'lower', 'upper', 'capitalize', 'title' o 'none'.");
+                        "Parámetro 'caseFormat' inválido. Usa: 'lower', 'upper', 'capitalize', 'title' o 'none'.");
         }
 
         // Eliminar caracteres no deseados, excepto letras/números/guiones/espacios
@@ -105,8 +105,8 @@ public class StringUtil {
         wordIterator.setText(s);
         int start = wordIterator.first();
         for (int end = wordIterator.next();
-             end != BreakIterator.DONE;
-             start = end, end = wordIterator.next()) {
+                end != BreakIterator.DONE;
+                start = end, end = wordIterator.next()) {
             String word = s.substring(start, end);
             if (Character.isLetterOrDigit(word.codePointAt(0))) {
                 result.append(Character.toUpperCase(word.charAt(0)));
@@ -285,10 +285,10 @@ public class StringUtil {
         String slugCapitalize = stringSlugify(texto, "capitalize");
         String slugTitle = stringSlugify(texto, "title");
         String extJpg =
-            getFileExtensionFromUrl("https://sercoplus.com/img/m/771-small_default.jpg");
+                getFileExtensionFromUrl("https://sercoplus.com/img/m/771-small_default.jpg");
         String extJs = getFileExtensionFromUrl("https://sercoplus.com/img/m/14-small_default.js");
         String extYaml =
-            getFileExtensionFromUrl("https://sercoplus.com/img/m/14-small_default.yaml");
+                getFileExtensionFromUrl("https://sercoplus.com/img/m/14-small_default.yaml");
         String extNone = getFileExtensionFromUrl("https://sercoplus.com/img/m/14-small_default");
 
         log.info("{}", slugNone); // Hola-mundo-Prueba-de-Slugify
