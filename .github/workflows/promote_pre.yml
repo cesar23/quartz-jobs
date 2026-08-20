@@ -34,7 +34,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   GITHUB_TOKEN_PAT: ${{ secrets.TOKEN_GITHUB }}
-  VPS_HOST: ${{ vars.VPS_HOST }}
+  #VPS_HOST: ${{ vars.VPS_HOST }}
 
 jobs:
   promote:
@@ -57,56 +57,56 @@ jobs:
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pre-${{ github.event.inputs.sha }} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:dev-${{ github.event.inputs.sha }}
 
-  deploy:
-    needs: promote
-    runs-on: self-hosted
-    name: Deploy a Staging (self-hosted)
-    environment:
-      name: staging
-
-    steps:
-      - name: CHECK SERVER (estado antes del deploy)
-        run: |
-          echo "❗CHECK."
-          curl -f --connect-timeout 5 --max-time 10 http://${{ env.VPS_HOST }}:18081/actuator/health || echo "⚠️ No responde (puede ser normal si es el primer deploy o el contenedor estaba caído)"
-
-      - name: Deploy en /opt/app_pre
-        # Antes referenciaba "docker-compose.pre.yml" (overlay que no
-        # existe en el VPS -- resto de una version anterior del pipeline).
-        # El docker-compose.yml actual ya resuelve las diferencias por
-        # ambiente via --env-file, no necesita overlay.
-        run: |
-          cd /opt/app_pre
-          docker compose -f docker-compose.yml --env-file .env.pre pull
-          docker compose -f docker-compose.yml --env-file .env.pre up -d --remove-orphans
-          docker image prune -f
-
-      - name: PRE Revisión de contenedores
-        run: |
-          echo "❗Revisión de contenedores..."
-          sleep 5
-          docker ps -a
-
-      - name: Health Check Staging
-        # -------------------------------------------------------------------
-        # 20 reintentos de 20s tras 30s iniciales (~230s en total). Si
-        # falla, se vuelcan los logs del contenedor real de la app.
-        # -------------------------------------------------------------------
-        run: |
-          echo "⏳ Esperando inicio de la aplicación..."
-          sleep 30
-          for i in $(seq 1 20); do
-            if curl -f http://localhost:18081/actuator/health; then
-              echo "✅ Staging está saludable!"
-              exit 0
-            fi
-            echo "⚠️ Intento $i/20 fallido, reintentando en 20s..."
-            sleep 20
-          done
-          echo "❌ Staging no respondió tras 20 intentos."
-          echo "--- Logs del contenedor app (últimas 80 líneas) ---"
-          docker logs $(docker ps -q --filter 'name=jobs-pre-app') --tail 80 || true
-          exit 1
+#  deploy:
+#    needs: promote
+#    runs-on: self-hosted
+#    name: Deploy a Staging (self-hosted)
+#    environment:
+#      name: staging
+#
+#    steps:
+#      - name: CHECK SERVER (estado antes del deploy)
+#        run: |
+#          echo "❗CHECK."
+#          curl -f --connect-timeout 5 --max-time 10 http://${{ env.VPS_HOST }}:18081/actuator/health || echo "⚠️ No responde (puede ser normal si es el primer deploy o el contenedor estaba caído)"
+#
+#      - name: Deploy en /opt/app_pre
+#        # Antes referenciaba "docker-compose.pre.yml" (overlay que no
+#        # existe en el VPS -- resto de una version anterior del pipeline).
+#        # El docker-compose.yml actual ya resuelve las diferencias por
+#        # ambiente via --env-file, no necesita overlay.
+#        run: |
+#          cd /opt/app_pre
+#          docker compose -f docker-compose.yml --env-file .env.pre pull
+#          docker compose -f docker-compose.yml --env-file .env.pre up -d --remove-orphans
+#          docker image prune -f
+#
+#      - name: PRE Revisión de contenedores
+#        run: |
+#          echo "❗Revisión de contenedores..."
+#          sleep 5
+#          docker ps -a
+#
+#      - name: Health Check Staging
+#        # -------------------------------------------------------------------
+#        # 20 reintentos de 20s tras 30s iniciales (~230s en total). Si
+#        # falla, se vuelcan los logs del contenedor real de la app.
+#        # -------------------------------------------------------------------
+#        run: |
+#          echo "⏳ Esperando inicio de la aplicación..."
+#          sleep 30
+#          for i in $(seq 1 20); do
+#            if curl -f http://localhost:18081/actuator/health; then
+#              echo "✅ Staging está saludable!"
+#              exit 0
+#            fi
+#            echo "⚠️ Intento $i/20 fallido, reintentando en 20s..."
+#            sleep 20
+#          done
+#          echo "❌ Staging no respondió tras 20 intentos."
+#          echo "--- Logs del contenedor app (últimas 80 líneas) ---"
+#          docker logs $(docker ps -q --filter 'name=jobs-pre-app') --tail 80 || true
+#          exit 1
 
 # =============================================================================
 # RESULTADO: la imagen dev-<sha> queda tambien etiquetada como "pre" y

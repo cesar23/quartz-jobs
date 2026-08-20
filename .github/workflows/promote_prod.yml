@@ -38,7 +38,7 @@ env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
   GITHUB_TOKEN_PAT: ${{ secrets.TOKEN_GITHUB }}
-  VPS_HOST: ${{ vars.VPS_HOST }}
+  #VPS_HOST: ${{ vars.VPS_HOST }}
 
 jobs:
   promote:
@@ -61,68 +61,68 @@ jobs:
             -t ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.event.inputs.version }} \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:pre-${{ github.event.inputs.sha }}
 
-  deploy:
-    needs: promote
-    runs-on: self-hosted
-    name: Deploy a Producción (self-hosted)
-    environment:
-      name: production   # ← gate de aprobación manual si tu plan lo soporta
-
-    steps:
-      - name: CHECK SERVER (estado antes del deploy)
-        run: |
-          echo "❗CHECK."
-          curl -f --connect-timeout 5 --max-time 10 http://localhost:8080/actuator/health || echo "⚠️ No responde (puede ser normal si es el primer deploy o el contenedor estaba caído)"
-
-      - name: Deploy en /opt/app_prod
-        # Antes referenciaba "docker-compose.prod.yml" (overlay que no
-        # existe en el VPS -- resto de una version anterior del pipeline,
-        # igual que el mismo caso ya corregido en promote_pre.yml).
-        run: |
-          cd /opt/app_prod
-          docker compose -f docker-compose.yml --env-file .env.prod pull
-          docker compose -f docker-compose.yml --env-file .env.prod up -d --remove-orphans
-          docker image prune -f
-
-      - name: PROD Revisión de contenedores
-        run: |
-          echo "❗Revisión de contenedores..."
-          sleep 5
-          docker ps -a
-
-      - name: Health Check Producción
-        # -------------------------------------------------------------------
-        # 20 reintentos de 20s tras 30s iniciales (~230s en total). "localhost"
-        # porque el runner self-hosted corre en el propio VPS -- no VPS_HOST.
-        # Si falla, se vuelcan los logs del contenedor real de la app.
-        # -------------------------------------------------------------------
-        run: |
-          echo "⏳ Esperando inicio de la aplicación..."
-          sleep 30
-          for i in $(seq 1 20); do
-            if curl -f http://localhost:8080/actuator/health; then
-              echo "✅ Producción está saludable!"
-              exit 0
-            fi
-            echo "⚠️ Intento $i/20 fallido, reintentando en 20s..."
-            sleep 20
-          done
-          echo "❌ Producción no respondió tras 20 intentos."
-          echo "--- Logs del contenedor app (últimas 80 líneas) ---"
-          docker logs $(docker ps -q --filter 'name=jobs-prod-app') --tail 80 || true
-          exit 1
-
-      - name: Rollback en caso de fallo
-        # Como cada versión promovida a prod queda etiquetada con su propio
-        # ${{ inputs.version }} (ej. v1.4.1, v1.4.2...), basta con re-correr
-        # ESTE MISMO workflow apuntando al "sha" y "version" anteriores.
-        # Este paso solo deja constancia en el log; el rollback real es
-        # volver a ejecutar el workflow con los inputs de la versión previa.
-        if: failure()
-        run: |
-          echo "❌ El despliegue falló."
-          echo "Para revertir: vuelve a correr 'Promote to PROD and Deploy'"
-          echo "usando el 'sha' y 'version' de la última versión estable conocida."
+#  deploy:
+#    needs: promote
+#    runs-on: self-hosted
+#    name: Deploy a Producción (self-hosted)
+#    environment:
+#      name: production   # ← gate de aprobación manual si tu plan lo soporta
+#
+#    steps:
+#      - name: CHECK SERVER (estado antes del deploy)
+#        run: |
+#          echo "❗CHECK."
+#          curl -f --connect-timeout 5 --max-time 10 http://localhost:8080/actuator/health || echo "⚠️ No responde (puede ser normal si es el primer deploy o el contenedor estaba caído)"
+#
+#      - name: Deploy en /opt/app_prod
+#        # Antes referenciaba "docker-compose.prod.yml" (overlay que no
+#        # existe en el VPS -- resto de una version anterior del pipeline,
+#        # igual que el mismo caso ya corregido en promote_pre.yml).
+#        run: |
+#          cd /opt/app_prod
+#          docker compose -f docker-compose.yml --env-file .env.prod pull
+#          docker compose -f docker-compose.yml --env-file .env.prod up -d --remove-orphans
+#          docker image prune -f
+#
+#      - name: PROD Revisión de contenedores
+#        run: |
+#          echo "❗Revisión de contenedores..."
+#          sleep 5
+#          docker ps -a
+#
+#      - name: Health Check Producción
+#        # -------------------------------------------------------------------
+#        # 20 reintentos de 20s tras 30s iniciales (~230s en total). "localhost"
+#        # porque el runner self-hosted corre en el propio VPS -- no VPS_HOST.
+#        # Si falla, se vuelcan los logs del contenedor real de la app.
+#        # -------------------------------------------------------------------
+#        run: |
+#          echo "⏳ Esperando inicio de la aplicación..."
+#          sleep 30
+#          for i in $(seq 1 20); do
+#            if curl -f http://localhost:8080/actuator/health; then
+#              echo "✅ Producción está saludable!"
+#              exit 0
+#            fi
+#            echo "⚠️ Intento $i/20 fallido, reintentando en 20s..."
+#            sleep 20
+#          done
+#          echo "❌ Producción no respondió tras 20 intentos."
+#          echo "--- Logs del contenedor app (últimas 80 líneas) ---"
+#          docker logs $(docker ps -q --filter 'name=jobs-prod-app') --tail 80 || true
+#          exit 1
+#
+#      - name: Rollback en caso de fallo
+#        # Como cada versión promovida a prod queda etiquetada con su propio
+#        # ${{ inputs.version }} (ej. v1.4.1, v1.4.2...), basta con re-correr
+#        # ESTE MISMO workflow apuntando al "sha" y "version" anteriores.
+#        # Este paso solo deja constancia en el log; el rollback real es
+#        # volver a ejecutar el workflow con los inputs de la versión previa.
+#        if: failure()
+#        run: |
+#          echo "❌ El despliegue falló."
+#          echo "Para revertir: vuelve a correr 'Promote to PROD and Deploy'"
+#          echo "usando el 'sha' y 'version' de la última versión estable conocida."
 
 # =============================================================================
 # RESULTADO: ghcr.io/.../repo:prod y :<version> apuntan al MISMO digest que
