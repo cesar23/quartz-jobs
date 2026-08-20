@@ -244,7 +244,7 @@ jobs:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
 #          password: ${{ secrets.GITHUB_TOKEN }}
-          password: ${{ secrets.GITHUB_TOKEN_PAT }}
+          password: ${{ env.GITHUB_TOKEN_PAT }}
 
       - name: Levantar app + MariaDB (imagen recién publicada)
         env:
