@@ -25,9 +25,9 @@ services:
   # -----------------------------------------------------------------------
   quartz-jobs:
     # =============== Modo local =======
-    build:
-      context: .
-      dockerfile: Dockerfile
+#    build:
+#      context: .
+#      dockerfile: Dockerfile
 
     # =============== Modo Dcoker Registry =======
     # "image:" y "build:" JUNTOS -- segun el comando que uses, se
@@ -42,7 +42,7 @@ services:
     # IMAGE_TAG varia por ambiente (ver .env.dev/.env.pre/.env.prod):
     # "dev" en local, "pre"/"prod" en el VPS (mismos tags que arma
     # promote_pre.yml/promote_prod.yml al re-etiquetar la imagen).
-    #image: ${REGISTRY:-ghcr.io}/${IMAGE_NAME:-cesar23/quartz-jobs}:${IMAGE_TAG:-dev}
+    image: ${REGISTRY:-ghcr.io}/${IMAGE_NAME:-cesar23/quartz-jobs}:${IMAGE_TAG:-dev}
     container_name: '${COMPOSE_PROJECT_NAME}-app'
     restart: unless-stopped
     # Antes: "env_file: - .env.dev" (fijo). El problema: no importa que

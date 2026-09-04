@@ -246,6 +246,17 @@ jobs:
 #          password: ${{ secrets.GITHUB_TOKEN }}
           password: ${{ env.GITHUB_TOKEN_PAT }}
 
+      - name: Preparar carpeta de logs con permisos de escritura
+        # docker-compose.yml monta "./logs:/app/logs" -- si Docker crea esa
+        # carpeta sola (porque no existe en el runner), queda de "root", y
+        # el usuario no-root "spring" del Dockerfile no puede escribir ahi.
+        # Logback (perfil pre/prod) necesita escribir logs/quartz-jobs.log;
+        # si no puede, falla al iniciar ANTES de que Tomcat levante -- por
+        # eso el health check nunca respondia, aunque el contenedor
+        # "arrancara". chmod 777 es aceptable aca porque es un entorno de
+        # CI efimero, se destruye al final del job.
+        run: mkdir -p logs && chmod 777 logs
+
       - name: Levantar app + MariaDB (imagen recién publicada)
         env:
           COMPOSE_PROJECT_NAME: jobs-ci
