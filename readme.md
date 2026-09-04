@@ -1,7 +1,7 @@
 # 📚 Tutorial completo — Quartz Jobs
 
 > Guía de arquitectura y flujo de código para cualquier programador que se una al proyecto.
-> Explica **qué hace la aplicación**, **cómo están organizados los ficheros** y **cómo viaja una petición** desde que entra por HTTP hasta que Quartz ejecuta un job real.
+> Explica **qué hace la aplicación**, **cómo están organizados los ficheros**, **cómo viaja una petición** desde que entra por HTTP hasta que Quartz ejecuta un job real, y **cómo se compila/despliega** (Docker + CI/CD).
 
 ---
 
@@ -17,14 +17,17 @@ En lugar de tener jobs "fijos" definidos en código (como haría `@Scheduled`), 
 
 ### Jobs que ya trae el proyecto
 
-| Job | Qué hace | Servicio(s) que usa |
+| Job | Qué hace | Servicio(s)/colaboradores que usa |
 |---|---|---|
 | `EmailJob` | Envía un correo (asunto + cuerpo) | `EmailService` |
 | `FileWriterJob` | Escribe una línea con fecha/hora en un fichero | `FileWriterService` |
 | `ReportJob` | Plantilla vacía de ejemplo (espera 500ms y loguea) | — |
-| `WooCommerceSyncJob` | Job real de producción: hace login contra una API externa y sincroniza SKUs / stock / precios / tipo de cambio con WooCommerce, limpiando caché al final. Loguea a fichero, cuenta errores y avisa por email si se supera el máximo de errores permitido | `RestTemplate`, `EmailService`, `FileWriterService`, `SyncErrorTracker` |
+| `WooCommerceAuthJob` | **Primer job del flujo** (ej. cada 2h): hace login contra la API externa, valida el token con `sync/login` y verifica que sirve trayendo los SKUs. Deja el token cacheado para el siguiente job | `RestTemplate`, `WooCommerceTokenCache`, `EmailService` |
+| `WooCommerceDataSyncJob` | **Segundo job del flujo** (ej. cada 15 min): reutiliza el token que dejó `WooCommerceAuthJob` — **nunca hace login por su cuenta**. Sincroniza productos, envía pendientes a la web, actualiza tipo de cambio y limpia caché | `RestTemplate`, `WooCommerceTokenCache`, `EmailService` |
 
-`SyncErrorTracker` no es un job — es un componente auxiliar (contador en memoria, thread-safe) que usan los jobs de sincronización para saber cuántos errores consecutivos llevan y decidir cuándo avisar por correo.
+Componentes auxiliares (no son Jobs):
+- **`SyncErrorTracker`** — contador en memoria (thread-safe) de errores consecutivos por job, usado para decidir cuándo avisar por correo.
+- **`WooCommerceTokenCache`** — cachea el `access_token` obtenido por `WooCommerceAuthJob`, con control de vigencia (TTL), para que `WooCommerceDataSyncJob` lo reutilice sin loguearse de nuevo en cada ejecución.
 
 ---
 
@@ -39,7 +42,7 @@ En lugar de tener jobs "fijos" definidos en código (como haría `@Scheduled`), 
 | **Scheduler** | El motor interno de Quartz que guarda y dispara todo | El "cerebro" |
 | **JobStore JDBC** | Persistencia de todo lo anterior en tablas `QRTZ_*` de la BD | La libreta donde queda todo anotado |
 
-Como el `JobStore` es JDBC, **todos los jobs y triggers se guardan en la base de datos** (H2 en `dev`, MySQL en `pre`/`prod`), no solo en memoria. Por eso, si reinicias la app, los jobs programados siguen ahí.
+Como el `JobStore` es JDBC, **todos los jobs y triggers se guardan en la base de datos** (H2 en `dev`, MariaDB/MySQL en `pre`/`prod`), no solo en memoria. Por eso, si reinicias la app, los jobs programados siguen ahí — pero ojo: en una base de datos **nueva** (por ejemplo, un contenedor de MariaDB recién creado), las tablas `QRTZ_*` no existen todavía. Ver sección 9 (`QUARTZ_INIT_SCHEMA`) para el bootstrap inicial.
 
 ---
 
@@ -47,43 +50,77 @@ Como el `JobStore` es JDBC, **todos los jobs y triggers se guardan en la base de
 
 ```
 quartz-jobs/
-├── pom.xml                          # Dependencias Maven
-├── .env                             # Variables para perfil dev (NUNCA se sube al repo)
-├── .env.pre                         # Variables para perfil pre (NUNCA se sube al repo)
-├── .env.prod                        # Variables para perfil prod (NUNCA se sube al repo)
+├── pom.xml                          # Dependencias Maven + Spotless (formato de código)
+├── mvnw, mvnw.cmd, .mvn/wrapper/     # Maven Wrapper: compila sin necesitar Maven instalado
+├── Dockerfile                       # Build multi-stage (compila en Temurin, corre en JRE liviano)
+├── docker-compose.yml               # app + MariaDB + phpMyAdmin, un solo fichero para dev/pre/prod
+├── .env.dev / .env.pre / .env.prod  # Variables por ambiente (NUNCA se suben al repo)
 ├── .env.example                     # Plantilla sin secretos, sí se versiona
 ├── .gitignore
+├── .github/
+│   ├── workflows/
+│   │   ├── build.yml                # CI: compila, testea, linter, build+push imagen a GHCR, integration test
+│   │   ├── promote_pre.yml          # Re-etiqueta dev-<sha> → pre (sin recompilar)
+│   │   └── promote_prod.yml         # Re-etiqueta pre-<sha> → prod (sin recompilar)
+│   └── linters/
+│       ├── checkstyle.xml           # Reglas de Checkstyle
+│       ├── pmd-ruleset.xml          # Reglas de PMD
+│       └── suppressions.xml         # Excepciones de Checkstyle
+├── .mega-linter.yml                 # Config de MegaLinter (local y CI comparten este único archivo)
+├── .yamllint.yml                    # Reglas de yamllint
+├── .editorconfig
 └── src/main/
     ├── resources/
     │   ├── application.yml          # Config común a todos los perfiles
     │   ├── application-dev.yml      # Perfil dev  → H2 (AUTO_SERVER=TRUE)
-    │   ├── application-pre.yml      # Perfil pre  → MySQL (staging)
-    │   └── application-prod.yml     # Perfil prod → MySQL (producción)
+    │   ├── application-pre.yml      # Perfil pre  → MariaDB/MySQL (staging)
+    │   ├── application-prod.yml     # Perfil prod → MariaDB/MySQL (producción)
+    │   └── logback-spring.xml       # dev = consola legible; pre/prod = JSON estructurado
     └── java/com/quartzjobs/
         ├── JobsApplication.java          # Punto de entrada (main)
         │
         ├── config/
         │   ├── QuartzConfig.java         # Conecta Quartz con el contenedor de Spring
-        │   ├── RestTemplateConfig.java    # RestTemplate con timeouts (usado por jobs que llaman APIs externas)
-        │   └── StartupConfigPrinter.java  # Imprime en consola, al arrancar, qué config/perfil/variables quedaron activas (oculta secretos)
+        │   ├── RestTemplateConfig.java    # RestTemplate con timeouts, con el interceptor de logging enganchado
+        │   ├── StartupConfigPrinter.java  # Imprime en consola, al arrancar, qué config/perfil quedó activa
+        │   ├── RouteListPrinter.java      # Lista rutas registradas al arrancar (tabla ANSI en dev, JSON en pre/prod)
+        │   └── ShutdownBannerPrinter.java # Mensaje al apagar la app
         │
         ├── controller/
         │   └── JobController.java   # API REST: /api/jobs/**
         │
         ├── dto/
-        │   └── ScheduleRequest.java # "Formulario" que llega en el body del POST
+        │   ├── ScheduleRequest.java     # "Formulario" que llega en el body del POST
+        │   ├── ApiResponse.java         # Record de respuesta estándar (status/message/job/error)
+        │   └── LogFilterRequest.java    # Agrupa los criterios crudos de /internal/logs
         │
         ├── jobs/
         │   ├── EmailJob.java             # Tarea: enviar email
         │   ├── FileWriterJob.java        # Tarea: escribir en fichero
         │   ├── ReportJob.java            # Tarea: plantilla/ejemplo
-        │   ├── WooCommerceSyncJob.java   # Tarea real: sincronización con WooCommerce
-        │   └── SyncErrorTracker.java     # Contador de errores en memoria (no es un Job)
+        │   └── woocommerce/
+        │       ├── AbstractWooCommerceJob.java  # Helpers compartidos entre los 2 jobs de WooCommerce
+        │       ├── WooCommerceAuthJob.java       # 1er job: login + validación + cachea token
+        │       ├── WooCommerceDataSyncJob.java   # 2do job: reutiliza el token, sincroniza
+        │       ├── WooCommerceTokenCache.java    # Cache del access_token con TTL
+        │       └── SyncErrorTracker.java         # Contador de errores en memoria (no es un Job)
         │
-        └── service/
-            ├── SchedulerService.java    # Habla directamente con el Scheduler de Quartz
-            ├── EmailService.java        # Envío de correo: texto plano, HTML y HTML con adjuntos
-            └── FileWriterService.java   # Lógica de escritura en disco
+        ├── service/
+        │   ├── SchedulerService.java    # Habla directamente con el Scheduler de Quartz
+        │   ├── EmailService.java        # Envío de correo: texto plano, HTML y HTML con adjuntos
+        │   └── FileWriterService.java   # Lógica de escritura en disco (uso general, no de negocio)
+        │
+        └── util/
+            ├── DateUtils.java, StringUtil.java, NumberUtils.java, ...  # Utilidades generales
+            ├── FileManagerUtil.java     # cat/tail/rm + escritura de logs de negocio CON ROTACIÓN
+            ├── CurlLogger.java          # Genera el cURL equivalente de un request (debug)
+            └── log/                     # Sistema de logging estructurado y trazabilidad — ver sección 7
+                ├── core/LogContext.java
+                ├── web/CorrelationIdFilter.java, InternalApiTokenFilter.java
+                ├── quartz/QuartzExecutionListener.java, QuartzLoggingConfig.java
+                ├── httpclient/LoggingClientHttpRequestInterceptor.java
+                └── query/LogEntry.java, LogFilter.java, LogFilterRequest.java,
+                         LogQueryService.java, LogQueryController.java
 ```
 
 ### Capas y su responsabilidad (arquitectura en capas clásica de Spring)
@@ -125,23 +162,14 @@ POST /api/jobs
 Content-Type: application/json
 
 {
-    "jobName": "woocommerce-sync-prod",
-    "jobGroup": "SYNC",
-    "jobClass": "com.quartzjobs.jobs.woocommerce.WooCommerceSyncJob",
-    "cronExpression": "0 */15 * * * ?",
+    "jobName": "EmailDiario",
+    "jobGroup": "EMAIL",
+    "jobClass": "com.quartzjobs.jobs.EmailJob",
+    "cronExpression": "0 0 8 * * ?",
     "data": {
-        "loginUrl": "http://100.83.15.65:18080/api/v1/auth/login",
-        "syncLoginUrl": "http://100.83.15.65:18080/api/v1/sync/login",
-        "skusUrl": "http://100.83.15.65:18080/api/v1/sync/get-skus",
-        "syncMongoUrl": "http://100.83.15.65:18080/api/v1/sync/syncMongo",
-        "sendWebUrl": "http://100.83.15.65:18080/api/v1/sync/sendWeb",
-        "sendWebExchangeRateUrl": "http://100.83.15.65:18080/api/v1/sync/sendWebExchangeRate",
-        "sendCleanCacheUrl": "http://100.83.15.65:18080/api/v1/sync/sendCleanCache",
-        "username": "perucaos@gmail.com",
-        "password": "cesar203",
-        "adminEmail": "admin@tuempresa.com",
-        "maxErrors": "5",
-        "logFilePath": "logs/woocommerce-sync-prod.txt"
+        "to": "cliente@empresa.com",
+        "subject": "Reporte diario",
+        "body": "Aquí está tu reporte"
     }
 }
 ```
@@ -152,7 +180,7 @@ Content-Type: application/json
 - Carga la clase del job dinámicamente: `Class.forName("com.quartzjobs.jobs.EmailJob")`.
   Esto es lo que permite añadir jobs nuevos **sin tocar el controlador**: solo creas la clase y la referencias por nombre completo en el JSON.
 - Si viene `cronExpression`, llama a `schedulerService.scheduleCronJob(...)`; si no, usa `scheduleSimpleJob(...)` con el `intervalMs` (o 60s por defecto).
-- Si algo falla (clase no existe, cron mal formado, etc.) devuelve un `400` o `500` con el mensaje de error — nunca deja que la excepción rompa la respuesta.
+- Si algo falla (clase no existe, cron mal formado, etc.) devuelve un `400`/`500` con un `ApiResponse.error(...)` — nunca deja que la excepción rompa la respuesta.
 
 ### Paso 3 — `SchedulerService.scheduleCronJob(...)`
 
@@ -165,7 +193,8 @@ Content-Type: application/json
 Quartz, por su cuenta (sin que tu código haga nada), detecta que son las 8:00 AM y:
 
 1. Instancia `EmailJob` — pero no con `new EmailJob()`, sino a través de `SpringBeanJobFactory` (definida en `QuartzConfig`), que le permite a Spring inyectar los `@Autowired` dentro del job.
-2. Llama a `emailJob.execute(context)`.
+2. Antes de ejecutar, `QuartzExecutionListener` (ver sección 7) mete `jobKey`/`traceId` en el contexto de logging.
+3. Llama a `emailJob.execute(context)`.
 
 ### Paso 5 — `EmailJob.execute(...)`
 
@@ -175,7 +204,7 @@ Quartz, por su cuenta (sin que tu código haga nada), detecta que son las 8:00 A
 
 ### Paso 6 — `EmailService.send(...)`
 
-- Usa el `JavaMailSender` (autoconfigurado por Spring Boot con los datos de `application.yml` / `.env`) para mandar el correo real por SMTP. `EmailService` también expone `sendHtml(...)` y `sendHtmlWithAttachment(...)` para correos en HTML y con adjuntos.
+- Usa el `JavaMailSender` (autoconfigurado por Spring Boot con los datos de `application.yml` / `.env.*`) para mandar el correo real por SMTP. `EmailService` también expone `sendHtml(...)` y `sendHtmlWithAttachment(...)` para correos en HTML y con adjuntos.
 
 **Resumen visual del recorrido:**
 
@@ -185,48 +214,65 @@ HTTP POST /api/jobs
       → SchedulerService.scheduleCronJob()
          → Quartz guarda JobDetail + Trigger en la BD (QRTZ_*)
             → [... llega la hora programada ...]
-               → Quartz instancia EmailJob (vía SpringBeanJobFactory)
-                  → EmailJob.execute()
-                     → EmailService.send()
-                        → Email enviado por SMTP ✅
+               → QuartzExecutionListener mete jobKey/traceId en el log
+                  → Quartz instancia EmailJob (vía SpringBeanJobFactory)
+                     → EmailJob.execute()
+                        → EmailService.send()
+                           → Email enviado por SMTP ✅
 ```
 
-### Caso real: `WooCommerceSyncJob`
+### Caso real: `WooCommerceAuthJob` + `WooCommerceDataSyncJob`
 
-El mismo flujo aplica al job de sincronización, solo que en vez de `to`/`subject`/`body`, el `data` del `POST /api/jobs` trae las URLs de la API externa (login, sync, SKUs, etc.), credenciales y configuración de reintentos/logging:
+Son **dos jobs separados, encadenados por el token cacheado**, no uno solo:
 
+**1) `WooCommerceAuthJob`** (corre cada 2h, por ejemplo):
 ```json
 {
-  "jobName": "woocommerce-sync-prod",
+  "jobName": "woocommerce-auth-prod",
   "jobGroup": "SYNC",
-  "jobClass": "com.quartzjobs.jobs.woocommerce.WooCommerceSyncJob",
-  "cronExpression": "0 */15 * * * ?",
+  "jobClass": "com.quartzjobs.jobs.woocommerce.WooCommerceAuthJob",
+  "cronExpression": "0 0 */2 * * ?",
   "data": {
-    "loginUrl": "...",
-    "syncLoginUrl": "...",
-    "skusUrl": "...",
-    "syncMongoUrl": "...",
-    "sendWebUrl": "...",
-    "sendWebExchangeRateUrl": "...",
-    "sendCleanCacheUrl": "...",
-    "username": "...",
-    "password": "...",
+    "loginUrl": "https://api.ejemplo.com/auth/login",
+    "syncLoginUrl": "https://api.ejemplo.com/sync/login",
+    "skusUrl": "https://api.ejemplo.com/sync/get-skus",
+    "username": "TU_USUARIO",
+    "password": "TU_PASSWORD",
     "adminEmail": "admin@tuempresa.com",
-    "maxErrors": "5",
-    "logFilePath": "logs/woocommerce-sync-prod.txt"
+    "tokenKey": "woocommerce-default",
+    "maxErrors": "5"
   }
 }
 ```
 
-Internamente usa `RestTemplate` (configurado con timeouts en `RestTemplateConfig`) para hablar con la API externa, `FileWriterService` para dejar rastro en `logFilePath`, `SyncErrorTracker` para contar fallos consecutivos y `EmailService` para avisar a `adminEmail` si se supera `maxErrors`.
+**2) `WooCommerceDataSyncJob`** (corre cada 15 min, **debe tener el mismo `tokenKey`** que el job anterior):
+```json
+{
+  "jobName": "woocommerce-datasync-prod",
+  "jobGroup": "SYNC",
+  "jobClass": "com.quartzjobs.jobs.woocommerce.WooCommerceDataSyncJob",
+  "cronExpression": "0 */15 * * * ?",
+  "data": {
+    "syncMongoUrl": "https://api.ejemplo.com/sync/syncMongo",
+    "sendWebUrl": "https://api.ejemplo.com/sync/sendWeb",
+    "sendWebExchangeRateUrl": "https://api.ejemplo.com/sync/sendWebExchangeRate",
+    "sendCleanCacheUrl": "https://api.ejemplo.com/sync/sendCleanCache",
+    "adminEmail": "admin@tuempresa.com",
+    "tokenKey": "woocommerce-default",
+    "maxErrors": "5"
+  }
+}
+```
 
-> ⚠️ **Nota de seguridad:** el `username`/`password` de este job viajan en el body del `POST` y quedan guardados tal cual en la tabla `QRTZ_JOB_DETAILS` (JobDataMap serializado). No expongas `/api/jobs` sin autenticación en un entorno accesible desde fuera, y considera rotar estas credenciales si alguna vez se compartieron en texto plano (chat, ticket, repo, etc.).
+Si `WooCommerceDataSyncJob` no encuentra un token válido en caché (porque `WooCommerceAuthJob` nunca corrió con el mismo `tokenKey`, o el token venció), **falla de inmediato con un mensaje claro** — nunca intenta loguearse por su cuenta.
+
+> ⚠️ **Nota de seguridad:** el `username`/`password` de `WooCommerceAuthJob` viajan en el body del `POST` y quedan guardados tal cual en la tabla `QRTZ_JOB_DETAILS` (JobDataMap serializado). No expongas `/api/jobs` sin autenticación en un entorno accesible desde fuera, y considera rotar estas credenciales si alguna vez se compartieron en texto plano (chat, ticket, repo, etc.).
 
 ---
 
 ## 5. La API REST completa
 
-Todos los endpoints cuelgan de `/api/jobs`.
+Todos los endpoints de jobs cuelgan de `/api/jobs`. Hay además una API interna de logs, ver sección 7.
 
 | Método | Ruta | Qué hace |
 |---|---|---|
@@ -237,6 +283,9 @@ Todos los endpoints cuelgan de `/api/jobs`.
 | `POST` | `/api/jobs/{group}/{name}/resume` | Reanuda un job pausado |
 | `POST` | `/api/jobs/{group}/{name}/trigger` | Lo ejecuta ya mismo, sin esperar su horario |
 | `DELETE` | `/api/jobs/{group}/{name}` | Lo borra definitivamente de Quartz |
+| `GET` | `/internal/logs` | Consulta logs con filtros (traceId, jobKey, level, etc.) — requiere header `X-Internal-Token`, ver sección 7 |
+
+Las respuestas de comandos (`schedule`, `pause`, `resume`, `trigger`, `delete`) usan el DTO `ApiResponse` (`status`, `message`, `job`, `error` — los campos que no aplican salen explícitos como `null`).
 
 ### Dos formas de programar un job (en el `POST /api/jobs`)
 
@@ -292,94 +341,23 @@ segundo minuto hora día-del-mes mes día-de-la-semana [año]
 | Cada 1 de enero a medianoche (anual) | `0 0 0 1 1 ?` |
 | Cada 30 minutos, solo en horario laboral (9am-6pm), de lunes a viernes | `0 0/30 9-18 ? * MON-FRI` |
 
-### Ejemplos completos de `POST /api/jobs` (formato Postman)
-
-**A) Cada 15 minutos — sincronización recurrente:**
-```postman_json
-{
-  "jobName": "woocommerce-sync-prod",
-  "jobGroup": "SYNC",
-  "jobClass": "com.quartzjobs.jobs.woocommerce.WooCommerceSyncJob",
-  "cronExpression": "0 */15 * * * ?",
-  "data": {
-    "adminEmail": "admin@tuempresa.com",
-    "maxErrors": "5",
-    "logFilePath": "logs/woocommerce-sync-prod.txt"
-  }
-}
-```
-
-**B) Todos los días a las 8:00 AM — reporte diario por email:**
-```postman_json
-{
-  "jobName": "EmailDiario",
-  "jobGroup": "EMAIL",
-  "jobClass": "com.quartzjobs.jobs.EmailJob",
-  "cronExpression": "0 0 8 * * ?",
-  "data": {
-    "to": "cliente@empresa.com",
-    "subject": "Reporte diario",
-    "body": "Aquí está tu reporte"
-  }
-}
-```
-
-**C) De lunes a viernes a las 9:00 AM — solo días hábiles:**
-```postman_json
-{
-  "jobName": "RecordatorioLaboral",
-  "jobGroup": "EMAIL",
-  "jobClass": "com.quartzjobs.jobs.EmailJob",
-  "cronExpression": "0 0 9 ? * MON-FRI",
-  "data": {
-    "to": "equipo@empresa.com",
-    "subject": "Buenos días",
-    "body": "Recordatorio del día laboral"
-  }
-}
-```
-
-**D) El primer día de cada mes a las 6:00 AM — job mensual:**
-```postman_json
-{
-  "jobName": "ReporteMensual",
-  "jobGroup": "REPORTS",
-  "jobClass": "com.quartzjobs.jobs.ReportJob",
-  "cronExpression": "0 0 6 1 * ?"
-}
-```
-
-**E) Cada 5 minutos, escribiendo en fichero:**
-```postman_json
-{
-  "jobName": "HeartbeatLog",
-  "jobGroup": "MISC",
-  "jobClass": "com.quartzjobs.jobs.FileWriterJob",
-  "cronExpression": "0 0/5 * * * ?",
-  "data": {
-    "filePath": "logs/heartbeat.txt",
-    "extra": "heartbeat ok"
-  }
-}
-```
-
-> 💡 Tip: para probar rápido si una expresión cron es válida antes de mandarla, puedes usar cualquier validador de "Quartz cron expression" online, o simplemente mandar el `POST` contra tu `dev` local — si el cron está mal formado, `JobController` responde `400 Bad Request` con el mensaje de error de Quartz.
+> 💡 Tip: para probar rápido si una expresión cron es válida antes de mandarla, puedes usar cualquier validador de "Quartz cron expression" online, o simplemente mandar el `POST` contra tu `dev` local — si el cron está mal formado, `JobController` responde `400 Bad Request` con el `ApiResponse.error(...)` de Quartz.
 
 ---
 
-## 6. Configuración: perfiles (`dev` / `pre` / `prod`) + `.env` por perfil
+## 6. Configuración: perfiles (`dev` / `pre` / `prod`) + `.env.*` por perfil
 
-El proyecto ya no tiene dos entornos, sino **tres perfiles de Spring** (`dev`, `pre`, `prod`), cada uno con su propio fichero de variables de entorno. Esto evita mezclar secretos con configuración de código y permite cambiar de base de datos, correo, etc. sin tocar Java.
+El proyecto tiene **tres perfiles de Spring** (`dev`, `pre`, `prod`), cada uno con su propio fichero de variables de entorno. Esto evita mezclar secretos con configuración de código y permite cambiar de base de datos, correo, etc. sin tocar Java.
 
 ```
-.env                    → variables para el perfil dev (nombre por defecto que espera spring-dotenv)
+.env.dev                → variables para el perfil dev
 .env.pre                → variables para el perfil pre
 .env.prod               → variables para el perfil prod
-.env.example            → plantilla sin secretos; sí se versiona, sirve de referencia
-application.yml         → config común: nombre app, Quartz, mail, actuator, logging
+.env.example             → plantilla sin secretos; sí se versiona, sirve de referencia
+application.yml         → config común: nombre app, Quartz, mail, actuator, logging, API interna de logs
 application-dev.yml     → override para desarrollo: base de datos H2
-application-pre.yml     → override para staging: base de datos MySQL (BD de pre)
-application-prod.yml    → override para producción: base de datos MySQL (BD de prod)
+application-pre.yml     → override para staging: base de datos MariaDB/MySQL (BD de pre)
+application-prod.yml    → override para producción: base de datos MariaDB/MySQL (BD de prod)
 ```
 
 ### ¿Cómo se elige el perfil?
@@ -393,80 +371,192 @@ spring:
 
 Esto significa: *"lee la variable de entorno `SPRING_PROFILES_ACTIVE`; si no existe, usa `dev` por defecto"*. Spring Boot entonces carga automáticamente `application-dev.yml`, `application-pre.yml` o `application-prod.yml` **encima** de `application.yml`, sobrescribiendo solo lo que cada perfil define (básicamente el `datasource`).
 
-### ⚠️ Importante: `spring.profiles.active` NO elige el `.env`
+### Dos formas de correr el proyecto — y cómo elige el `.env.*` cada una
 
-Esto sorprende a quien es nuevo en el proyecto: **`spring-dotenv` no sabe qué perfil de Spring está activo**. Solo busca un archivo con nombre fijo (`.env` por defecto). Son dos mecanismos totalmente independientes:
+**A) Con Docker (recomendado para pre/prod, ver sección 8)** — no hay ninguna magia de "detectar" el `.env`: se lo pasas explícito con `--env-file` al comando:
+```bash
+docker compose --env-file .env.pre up -d
+```
 
-| Mecanismo | Decide | Variable de control |
+**B) Sin Docker, desde el IDE o `mvnw`** — usa `spring-dotenv`, que por defecto busca un archivo llamado `.env` a secas (no `.env.dev`). Para que lea `.env.pre`/`.env.prod` hay que decírselo explícito con la variable de entorno `SPRINGDOTENV_FILENAME`:
+
+| Entorno | `SPRING_PROFILES_ACTIVE` | `SPRINGDOTENV_FILENAME` |
 |---|---|---|
-| Spring Profiles | Qué `application-{perfil}.yml` carga Spring | `SPRING_PROFILES_ACTIVE` |
-| spring-dotenv | Qué archivo `.env*` se lee | `SPRINGDOTENV_FILENAME` |
-
-Por eso hay que configurar **ambas** variables, a mano, para cada entorno que no sea `dev`:
-
-| Entorno | `spring.profiles.active` | `SPRINGDOTENV_FILENAME` |
-|---|---|---|
-| dev  | `dev`  | *(no hace falta, `.env` es el default)* |
+| dev  | `dev`  | `.env.dev` |
 | pre  | `pre`  | `.env.pre` |
 | prod | `prod` | `.env.prod` |
 
-En IntelliJ esto se configura creando **una Run Configuration por perfil**, cada una con su propio `Active profiles` y su propia variable de entorno `SPRINGDOTENV_FILENAME` en *Modify options → Environment variables*. (Ver el tutorial `ENV_configuracion_jetbrians.md` para el paso a paso completo con capturas del diálogo.)
+En IntelliJ esto se configura creando **una Run Configuration por perfil**, cada una con su propio `Active profiles` y su propia variable de entorno `SPRINGDOTENV_FILENAME` en *Modify options → Environment variables*. (Ver `ENV_configuracion_jetbrians.md` para el paso a paso completo con capturas del diálogo.)
 
-### ¿Por qué separar en `.env*`?
+**⚠️ Importante:** `spring.profiles.active` **no** elige el `.env` — son dos mecanismos independientes. Configurar solo uno de los dos es el error más común al levantar un perfil que no sea `dev`.
 
-Ningún dato sensible (contraseñas de BD, contraseña del correo) vive escrito dentro de los `.yml`. En su lugar, los `.yml` usan `${VARIABLE:valor_por_defecto}`, y el valor real se inyecta desde variables de entorno cargadas por `spring-dotenv` desde el `.env*` correspondiente al perfil. Ningún `.env*` real se sube al repositorio (están en `.gitignore`); solo `.env.example` se versiona, como plantilla sin secretos.
+### ¿Por qué separar en `.env.*`?
+
+Ningún dato sensible (contraseñas de BD, contraseña del correo) vive escrito dentro de los `.yml`. En su lugar, los `.yml` usan `${VARIABLE:valor_por_defecto}`, y el valor real se inyecta desde variables de entorno. Ningún `.env.*` real se sube al repositorio (están en `.gitignore`); solo `.env.example` se versiona, como plantilla sin secretos.
 
 ```bash
-cp .env.dev.example .env.dev         # perfil dev
-cp .env.dev.example .env.dev.pre     # perfil pre
-cp .env.dev.example .env.dev.prod    # perfil prod
+cp .env.example .env.dev
+cp .env.example .env.pre
+cp .env.example .env.prod
 # edita cada uno con sus valores reales
 ```
 
-### Tabla de variables de entorno
+### Tabla de variables de entorno (resumen)
 
 | Variable | Dónde se usa | Ejemplo |
 |---|---|---|
 | `SPRING_PROFILES_ACTIVE` | `application.yml` | `dev`, `pre` o `prod` |
-| `SPRINGDOTENV_FILENAME` | Run Configuration / entorno del proceso | `.env.pre`, `.env.prod` |
-| `SERVER_PORT` | `application.yml` | `8080` |
-| `DB_HOST`, `DB_PORT`, `DB_NAME` | `application-pre.yml` / `application-prod.yml` | `localhost`, `3306`, `quartzjobs_prod` |
-| `DB_USERNAME`, `DB_PASSWORD` | `application-pre.yml` / `application-prod.yml` | tu usuario/clave de MySQL |
-| `MAIL_HOST`, `MAIL_PORT` | `application.yml` | `smtp.gmail.com` / `sandbox.smtp.mailtrap.io` |
-| `MAIL_USERNAME`, `MAIL_PASSWORD` | `application.yml` | tu correo o usuario de Mailtrap + contraseña de aplicación |
+| `SERVER_PORT` | `application.yml` (fuera de Docker) | `8080` |
+| `HOST_PORT` | `docker-compose.yml` (solo con Docker) | `7080` en pre, `8080`/`8082` en dev/prod |
+| `DB_HOST`, `DB_PORT`, `DB_NAME` | `application-pre.yml` / `application-prod.yml` | `localhost` (sin Docker) o `mariadb` (forzado dentro de Docker) |
+| `DB_USERNAME`, `DB_PASSWORD` | `application-pre.yml` / `application-prod.yml` | tu usuario/clave de MariaDB/MySQL |
+| `MAIL_HOST`, `MAIL_PORT`, `MAIL_USERNAME`, `MAIL_PASSWORD` | `application.yml` | `smtp.gmail.com` / Mailtrap |
 | `LOG_LEVEL` | `application.yml` | `INFO`, `DEBUG` |
 | `QUARTZ_THREAD_COUNT` | `application.yml` | `5` |
+| `QUARTZ_INIT_SCHEMA` | `application.yml` | `never` (normal) / `always` (solo bootstrap de BD nueva, ver sección 9) |
+| `INTERNAL_API_TOKEN` | `application.yml` | token para `GET /internal/logs`, ver sección 7 |
+| `IMAGE_TAG`, `REGISTRY`, `IMAGE_NAME` | `docker-compose.yml` (solo con Docker) | `dev`/`pre`/`prod` |
 
-> 💡 Si usas Gmail para `MAIL_*`, genera una **contraseña de aplicación** dedicada (https://myaccount.google.com/apppasswords) en vez de tu contraseña normal de la cuenta — Gmail la exige y rechaza la contraseña normal con el error `534-5.7.9 Application-specific password required`.
+> 💡 Si usas Gmail para `MAIL_*`, genera una **contraseña de aplicación** dedicada (https://myaccount.google.com/apppasswords) en vez de tu contraseña normal de la cuenta.
 
 ### Dev vs Pre vs Prod, en una tabla
 
 | | Dev (`application-dev.yml`) | Pre (`application-pre.yml`) | Prod (`application-prod.yml`) |
 |---|---|---|---|
-| Base de datos | H2 embebida en fichero (`./data/quartzjobs`) con `AUTO_SERVER=TRUE` | MySQL de staging | MySQL de producción |
+| Base de datos | H2 embebida en fichero (`./data/quartzjobs`) con `AUTO_SERVER=TRUE` | MariaDB/MySQL de staging | MariaDB/MySQL de producción |
 | Consola H2 | Habilitada en `/h2-console` | Deshabilitada | Deshabilitada |
 | `show-sql` | `true` (ves las queries en consola) | `false` | `false` |
 | Log de `com.quartzjobs` | `DEBUG` | `INFO` | `INFO` |
+| Formato de log (`logback-spring.xml`) | Consola legible con colores | JSON estructurado | JSON estructurado |
 
-**`AUTO_SERVER=TRUE` en dev:** permite conectarte a la misma base H2 con DBeaver o la consola web **mientras la app sigue corriendo**, sin el clásico error `Database may be already in use` / `The file is locked`. El primer proceso en abrir el archivo `.mv.db` (normalmente la app) levanta un mini-servidor TCP interno; los siguientes clientes hablan con ese servidor en vez de pelear por el archivo. No combines esto con `DB_CLOSE_ON_EXIT=FALSE`: H2 no soporta ambos flags juntos. Ver el tutorial `H2_dbbeaver_conexion.md` para el paso a paso de conexión con la consola web y con DBeaver.
+**`AUTO_SERVER=TRUE` en dev:** permite conectarte a la misma base H2 con DBeaver o la consola web **mientras la app sigue corriendo**, sin el clásico error `Database may be already in use`. Ver `H2_dbbeaver_conexion.md` para el paso a paso.
 
 ### `StartupConfigPrinter`: verifica qué configuración quedó realmente activa
 
-Al arrancar, `JobsApplication` registra un listener (`StartupConfigPrinter`) que imprime en consola un resumen de la configuración efectiva: perfil activo, datasource, Quartz, mail, servidor, Swagger, Actuator y logging. Los valores sensibles (`spring.datasource.password`, `spring.mail.password`) se muestran parcialmente ocultos (solo los primeros 4 caracteres + `****`). Es la forma más rápida de confirmar, por ejemplo, que arrancaste con el `.env.pre` correcto y no terminaste apuntando por error a la base de `dev`.
+Al arrancar, `JobsApplication` registra un listener (`StartupConfigPrinter`) que imprime en consola un resumen de la configuración efectiva: perfil activo, datasource, Quartz, mail, servidor, Swagger, Actuator y logging. Los valores sensibles se muestran parcialmente ocultos. Es la forma más rápida de confirmar que arrancaste con el `.env.*` correcto.
 
 ---
 
-## 7. Extras que trae el `pom.xml`
+## 7. Logging estructurado, trazabilidad y consulta remota
 
-- **Actuator** (`/actuator/health`, `/actuator/info`) → para monitoreo básico de salud del servicio.
-- **Springdoc OpenAPI** → genera Swagger UI automáticamente en `/swagger-ui.html`, documentando los endpoints REST sin esfuerzo extra.
-- **Validation** → disponible para añadir anotaciones `@NotBlank`, `@NotNull`, etc. en `ScheduleRequest` si en el futuro quieres validar la entrada antes de llegar al controlador.
-- **`RestTemplate` (vía `RestTemplateConfig`)** → bean con timeouts de conexión (5s) y lectura (10s) preconfigurados, usado por jobs que llaman APIs externas (como `WooCommerceSyncJob`).
-- **`springboot3-dotenv`** → carga variables desde `.env*` automáticamente al arrancar; ver sección 6 para cómo elegir el fichero correcto por perfil.
+Todo el logging técnico sale en **JSON estructurado** en `pre`/`prod` (vía Logback + `logstash-logback-encoder`), no texto plano — pensado para Grafana/Loki/ELK o consulta directa vía la API interna. Guía completa y detallada: **`readme_logging.md`** y **`readme_logging_query.md`**. Resumen:
+
+### El núcleo: `LogContext` (100% portable, sin dependencias de framework)
+
+Pone/quita valores del MDC de SLF4J. El resto del código (controllers, services, jobs) usa su `Logger` normal — el `traceId`/`jobKey` aparecen solos en el JSON, puestos por los "adapters":
+
+| Adapter | Qué hace |
+|---|---|
+| `CorrelationIdFilter` | `traceId` para requests HTTP entrantes, traza también el response (status, duración) |
+| `QuartzExecutionListener` + `QuartzLoggingConfig` | `jobKey`/`jobGroup`/`traceId` automático para **todos** los jobs de Quartz, sin tocar cada clase |
+| `LoggingClientHttpRequestInterceptor` | Traza las llamadas HTTP **salientes** (`RestTemplate`, ej. hacia la API de WooCommerce), con el mismo `traceId` del job que las originó |
+
+Con esto, buscando por un solo `traceId` ves de un tirón: el request HTTP → el job que disparó → cada llamada saliente que hizo — todo amarrado.
+
+### `GET /internal/logs` — consultar logs sin acceso directo al servidor
+
+Protegido por `InternalApiTokenFilter` (header `X-Internal-Token`, variable `INTERNAL_API_TOKEN`). Lee `logs/quartz-jobs.log` línea por línea (sin cargar el archivo entero en memoria), con límite duro de resultados.
+
+```bash
+curl -H "X-Internal-Token: TU_TOKEN" \
+  "http://localhost:8080/internal/logs?jobKey=woocommerce.dataSyncJob&level=ERROR&limit=50"
+
+# El caso más útil: todo lo de un flujo específico, con un solo traceId
+curl -H "X-Internal-Token: TU_TOKEN" \
+  "http://localhost:8080/internal/logs?traceId=a1b2c3d4-..."
+```
+
+Parámetros: `traceId`, `jobKey`, `jobGroup`, `level`, `source` (`http`/`job`), `message` (substring), `from`/`to` (rango ISO-8601), `limit` — todos combinables con coma (OR dentro del campo) y AND entre campos.
+
+### El log de negocio a fichero (`writeLog(...)`) — con rotación
+
+`AbstractWooCommerceJob.writeLog(...)` sigue existiendo como auditoría legible por humanos aparte del log técnico, pero ya no crece sin límite: usa `FileManagerUtil.appendLineWithRotation(...)`, que rota el fichero por tamaño automáticamente.
 
 ---
 
-## 8. ¿Cómo añadir un Job nuevo? (guía rápida)
+## 8. Docker
+
+### `Dockerfile` — build multi-stage
+
+Compila en una imagen pesada (`maven:3.9.9-eclipse-temurin-21`) y corre en una liviana (`eclipse-temurin:21-jre-alpine`), como usuario no-root. El puerto interno del contenedor **siempre es 8080, fijo**, en los 3 ambientes — el puerto "visible desde afuera" se resuelve en `docker-compose.yml`, no acá.
+
+### `docker-compose.yml` — un solo fichero para los 3 ambientes
+
+Levanta `quartz-jobs` + `mariadb` + `phpmyadmin`, en una red (`quartz-net`) y volumen (`mariadb-data`) con nombre explícito por ambiente (`jobs-dev-*`, `jobs-pre-*`, `jobs-prod-*` — nunca comparten datos entre sí). Ninguna variable queda quemada en el YAML: todo se resuelve con `${VAR}` desde el `.env.*` que le pases.
+
+El servicio `quartz-jobs` tiene **`image:` y `build:` a la vez** — según el comando, se comporta distinto:
+
+```bash
+# Local: construye desde el Dockerfile
+docker compose --env-file .env.dev build
+docker compose --env-file .env.dev up -d
+
+# pre/prod (VPS): descarga la imagen ya construida por CI, NUNCA compila ahí
+docker compose --env-file .env.pre pull
+docker compose --env-file .env.pre up -d
+```
+
+`IMAGE_TAG` (`dev`/`pre`/`prod`, en cada `.env.*`) decide qué tag de `ghcr.io/.../quartz-jobs` se usa.
+
+### Bootstrap de una base de datos nueva
+
+Un contenedor de MariaDB recién creado no tiene las tablas `QRTZ_*`. Corre **una sola vez** con el bootstrap activado, después vuelve a `never` (dejarlo en `always` de forma permanente **dropea y recrea** las tablas en cada reinicio, perdiendo todos los jobs):
+
+```bash
+QUARTZ_INIT_SCHEMA=always docker compose --env-file .env.pre up
+```
+
+Guía completa de comandos: **`tutorial_deploy.md`**.
+
+---
+
+## 9. CI/CD — GitHub Actions ("build once, promote everywhere")
+
+Tres workflows en `.github/workflows/`:
+
+| Workflow | Se dispara | Qué hace |
+|---|---|---|
+| `build.yml` | Push a `develop` (o manual) | Compila, testea, corre MegaLinter, construye **una sola** imagen Docker, la publica en GHCR con tags `dev-<sha>` (inmutable) y `dev`, la escanea con Trivy, y levanta la imagen real + MariaDB para un **integration test** contra un endpoint |
+| `promote_pre.yml` | Manual (workflow_dispatch, con el SHA de `dev-<sha>`) | Re-etiqueta esa misma imagen (mismo digest, **sin recompilar**) como `pre` y `pre-<sha>` |
+| `promote_prod.yml` | Manual (con el SHA ya validado en pre + una versión semántica) | Re-etiqueta como `prod` y `<version>` (ej. `v1.4.2`) |
+
+La imagen que corre en producción es, **byte a byte**, la misma que se compiló una vez en `develop` — nunca se recompila entre `dev` → `pre` → `prod`, solo se re-etiqueta el mismo digest en el registro. Esto elimina el clásico "funcionaba en pre pero en prod se comporta distinto porque se compiló de nuevo".
+
+---
+
+## 10. Calidad de código — MegaLinter, Spotless, Checkstyle, PMD
+
+Guía completa y detallada: **`MEGALINTER-GUIA.md`**. Resumen de comandos del día a día:
+
+```bash
+# Formatea Java + YAML + Markdown + JSON automáticamente (Spotless, con Prettier por dentro para JSON)
+mvn spotless:apply
+
+# Verifica sin tocar nada (esto corre solo en la fase "verify")
+mvn spotless:check
+mvn verify
+
+# Correr MegaLinter localmente, igual que en CI (un solo .mega-linter.yml para ambos)
+docker run --rm -v $(pwd):/tmp/lint:rw -e GIT_SAFE_DIRECTORY=/tmp/lint -e APPLY_FIXES=none ghcr.io/oxsecurity/megalinter-java:v9
+```
+
+`checkstyle.xml`/`pmd-ruleset.xml` (en `.github/linters/`) solo bloquean como error los hallazgos de **prioridad alta/real** (recursos sin cerrar, bugs, etc.) — el resto de reglas de estilo puro quedan como informativas, visibles en el reporte pero sin tumbar el build.
+
+---
+
+## 11. Extras que trae el `pom.xml`
+
+- **Actuator** (`/actuator/health`, `/actuator/info`) → monitoreo básico de salud, usado por los health checks de `docker-compose.yml` y del pipeline de deploy.
+- **Springdoc OpenAPI** → Swagger UI automático en `/swagger-ui.html`.
+- **Validation** → disponible para `@NotBlank`/`@NotNull` en `ScheduleRequest`.
+- **`RestTemplate`** (vía `RestTemplateConfig`) → timeouts preconfigurados + el interceptor de logging de llamadas salientes ya enganchado.
+- **`spring-dotenv`** → carga variables desde el `.env.*` correspondiente (solo relevante corriendo sin Docker, ver sección 6).
+- **`logstash-logback-encoder`** → serializa los logs a JSON estructurado en `pre`/`prod`.
+- **`spotless-maven-plugin`** → formato de código automático (Java, YAML, Markdown, JSON), ver sección 10.
+
+---
+
+## 12. ¿Cómo añadir un Job nuevo? (guía rápida)
 
 1. Crea una clase en `com.quartzjobs.jobs` que implemente `Job`:
    ```java
@@ -488,17 +578,18 @@ Al arrancar, `JobsApplication` registra un listener (`StartupConfigPrinter`) que
    { "jobName": "Nuevo", "jobGroup": "MISC", "jobClass": "com.quartzjobs.jobs.MiNuevoJob", "intervalMs": 60000 }
    ```
 
-**`@DisallowConcurrentExecution`**: ponla siempre salvo que necesites explícitamente que dos ejecuciones del mismo job puedan solaparse. Evita que una segunda ejecución arranque mientras la anterior sigue corriendo.
+**`@DisallowConcurrentExecution`**: ponla siempre salvo que necesites explícitamente que dos ejecuciones del mismo job puedan solaparse.
 
 ---
 
-## 9. Arrancar el proyecto en local
+## 13. Arrancar el proyecto en local
+
+### Sin Docker
 
 ```bash
-cp .env.dev.example .env.dev          # completa tus valores
-mvn spring-boot:run           # perfil "dev" por defecto → H2, sin instalar nada más
+cp .env.example .env.dev              # completa tus valores
+./mvnw spring-boot:run                # perfil "dev" por defecto → H2, sin instalar nada más
 
-# Probar:
 curl -X POST http://localhost:8080/api/jobs \
   -H "Content-Type: application/json" \
   -d '{"jobName":"Prueba","jobGroup":"TEST","jobClass":"com.quartzjobs.jobs.ReportJob","intervalMs":30000}'
@@ -506,35 +597,39 @@ curl -X POST http://localhost:8080/api/jobs \
 curl http://localhost:8080/api/jobs        # ver todos los jobs
 ```
 
-Para `pre` o `prod`, define `SPRING_PROFILES_ACTIVE` (`pre` o `prod`) junto con `SPRINGDOTENV_FILENAME` (`.env.pre` o `.env.prod`) y las variables `DB_HOST`, `DB_USERNAME`, `DB_PASSWORD` de MySQL. El mismo `mvn spring-boot:run` (o el `.jar` empaquetado) usará MySQL automáticamente. Revisa la salida de `StartupConfigPrinter` al arrancar para confirmar que quedó todo bien apuntado.
+### Con Docker (recomendado para probar como en pre/prod)
+
+```bash
+cp .env.example .env.dev
+docker compose --env-file .env.dev build
+QUARTZ_INIT_SCHEMA=always docker compose --env-file .env.dev up   # solo la 1ra vez, BD nueva
+```
+
+Revisa la salida de `StartupConfigPrinter` al arrancar para confirmar que quedó todo bien apuntado.
 
 ---
 
-## 10. Crear el usuario y la base de datos en MySQL
+## 14. Crear el usuario y la base de datos en MariaDB/MySQL (fuera de Docker)
 
-Este comando crea el usuario, la base de datos y la contraseña para `pre` o `prod` (reemplaza `TU_CONTRASEÑA_AQUI` por una contraseña real y guárdala solo en el `.env*` correspondiente, nunca en el repo):
+Solo si corres MariaDB/MySQL directo, sin Docker (con Docker, `docker-compose.yml` ya crea usuario/BD automáticamente vía `MARIADB_USER`/`MARIADB_DATABASE`, ver sección 8):
 
 ```sql
--- ========================= Para PRE
 CREATE USER 'quartzjobs_pre'@'%' IDENTIFIED WITH sha256_password BY 'TU_CONTRASEÑA_AQUI';
 GRANT USAGE ON *.* TO 'quartzjobs_pre'@'%';
 ALTER USER 'quartzjobs_pre'@'%' REQUIRE NONE WITH MAX_QUERIES_PER_HOUR 0 MAX_CONNECTIONS_PER_HOUR 0 MAX_UPDATES_PER_HOUR 0 MAX_USER_CONNECTIONS 0;
 CREATE DATABASE IF NOT EXISTS `quartzjobs_pre`;
 GRANT ALL PRIVILEGES ON `quartzjobs_pre`.* TO 'quartzjobs_pre'@'%';
 FLUSH PRIVILEGES;
-
--- ========================= Para PROD
-CREATE USER 'quartzjobs_prod'@'%' IDENTIFIED WITH sha256_password BY 'TU_CONTRASEÑA_AQUI';
-GRANT USAGE ON *.* TO 'quartzjobs_prod'@'%';
-ALTER USER 'quartzjobs_prod'@'%' REQUIRE NONE WITH MAX_QUERIES_PER_HOUR 0 MAX_CONNECTIONS_PER_HOUR 0 MAX_UPDATES_PER_HOUR 0 MAX_USER_CONNECTIONS 0;
-CREATE DATABASE IF NOT EXISTS `quartzjobs_prod`;
-GRANT ALL PRIVILEGES ON `quartzjobs_prod`.* TO 'quartzjobs_prod'@'%';
-FLUSH PRIVILEGES;
 ```
+(repite con `_prod` para producción, y una contraseña **distinta** — nunca reutilices la misma entre ambientes)
 
 ---
 
-## 11. Tutoriales relacionados en este repo
+## 15. Tutoriales relacionados en este repo
 
-- **`ENV_configuracion_jetbrians.md`** → cómo crear las 3 Run Configurations en IntelliJ (una por perfil) con su `SPRINGDOTENV_FILENAME` correspondiente.
-- **`H2_dbbeaver_conexion.md`** → cómo conectar la consola web de H2 y DBeaver a la base de `dev` mientras la app sigue corriendo, usando `AUTO_SERVER=TRUE`.
+- **`ENV_configuracion_jetbrians.md`** → las 3 Run Configurations en IntelliJ (una por perfil).
+- **`H2_dbbeaver_conexion.md`** → conectar DBeaver/consola web a la base de `dev` en caliente.
+- **`readme_logging.md`** / **`readme_logging_query.md`** → sistema de logging estructurado y `/internal/logs`, en detalle.
+- **`tutorial_deploy.md`** → todos los comandos de Docker Compose por ambiente.
+- **`MEGALINTER-GUIA.md`** → configuración y comandos de MegaLinter/Spotless/Checkstyle/PMD.
+- **`Instalacion_java_jdk_21.md`** → instalar JDK 21 + Maven en un Ubuntu Server nuevo.

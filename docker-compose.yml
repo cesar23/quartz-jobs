@@ -9,6 +9,7 @@
 # docker compose -f docker-compose.yml --env-file .env.pre config
 #
 # docker compose -f docker-compose.yml  --env-file .env.pre up -d
+# docker compose -f docker-compose.yml  --env-file .env.pre up -d --remove-orphans
 # docker compose -f docker-compose.yml  --env-file .env.pre build --no-cache
 # ================= clear  cache
 #       docker compose -f docker-compose.yml  --env-file .env.pre build --no-cache backup
@@ -73,6 +74,9 @@ services:
       INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL}
       QUARTZ_INIT_SCHEMA: ${QUARTZ_INIT_SCHEMA:-never}
+    volumes:
+      # Logs persistentes en disco, independientes del log de Docker
+      - ./logs:/app/logs
     ports:
       # HOST_PORT si varia por ambiente (7080 en pre, 8080 en dev/prod);
       # el lado derecho (contenedor) siempre es 8080, fijo -- ver arriba.
