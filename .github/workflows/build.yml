@@ -250,6 +250,7 @@ jobs:
         env:
           COMPOSE_PROJECT_NAME: jobs-ci
           SPRING_PROFILES_ACTIVE: pre
+          SERVER_PORT: 8080
           REGISTRY: ${{ env.REGISTRY }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
           IMAGE_TAG: dev-${{ steps.vars.outputs.sha_short }}
@@ -258,7 +259,7 @@ jobs:
           DB_USERNAME: quartzjobs_ci
           DB_PASSWORD: ci-only-password
           MARIADB_ROOT_PASSWORD: ci-only-root-password
-          TZ: America/Lima
+          _TZ: America/Lima
           # BD nueva en cada corrida de CI -> siempre necesita el bootstrap.
           # Nunca dejar esto en "always" fuera de un entorno efímero como este.
           QUARTZ_INIT_SCHEMA: always
