@@ -7,6 +7,13 @@
 # Uso:
 #  ===== verificar  configuracion y  variables
 # docker compose -f docker-compose.yml --env-file .env.pre config
+
+# ============= Para directo al servidor
+#  export PUID="$(id -u)"
+#  export PGID="$(id -g)"
+#  docker compose --env-file .env.pre build
+#  QUARTZ_INIT_SCHEMA=always docker compose --env-file .env.pre up -d --remove-orphans
+
 #
 # docker compose -f docker-compose.yml  --env-file .env.pre up -d
 # docker compose -f docker-compose.yml  --env-file .env.pre up -d --remove-orphans
@@ -17,7 +24,7 @@
 # docker compose -f docker-compose.yml  --env-file .env.pre down
 # =========================================================================
 # ================= clear  volumen
-# docker volume rm $(docker volume ls -f dangling=true -q | grep -E '^jobs')
+# docker volume rm $(docker volume ls -f dangling=true -q | grep -E '^jobs-')
 services:
 
   # -----------------------------------------------------------------------
@@ -44,6 +51,7 @@ services:
     # promote_pre.yml/promote_prod.yml al re-etiquetar la imagen).
     image: ${REGISTRY:-ghcr.io}/${IMAGE_NAME:-cesar23/quartz-jobs}:${IMAGE_TAG:-dev}
     container_name: '${COMPOSE_PROJECT_NAME}-app'
+    user: "${PUID:-1000}:${PGID:-1000}" # UID/GID del usuario que corre "docker compose up" en el host — ver scripts/run-pre.sh
     restart: unless-stopped
     # Antes: "env_file: - .env.dev" (fijo). El problema: no importa que
     # le pases --env-file .env.pre al comando, el contenedor SIEMPRE

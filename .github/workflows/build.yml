@@ -281,6 +281,9 @@ jobs:
           MAIL_USERNAME: '8a0b6386b88931'
           MAIL_PASSWORD: '747a74bc24761a'
         run: |
+          export PUID="$(id -u)"
+          export PGID="$(id -g)"
+          export QUARTZ_INIT_SCHEMA=always
           docker compose -f docker-compose.yml pull quartz-jobs mariadb
           docker compose -f docker-compose.yml up -d quartz-jobs mariadb
 

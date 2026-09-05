@@ -81,8 +81,9 @@ Un contenedor de MariaDB recién creado no tiene las tablas `QRTZ_*` de
 Quartz. Corre **una sola vez** con el bootstrap del esquema activado:
 
 ```bash
-docker compose --env-file .env.dev build
-QUARTZ_INIT_SCHEMA=always docker compose --env-file .env.dev up
+mkdir logs
+docker compose --env-file .env.pre build
+QUARTZ_INIT_SCHEMA=always docker compose --env-file .env.pre up
 ```
 
 Espera a ver `Started JobsApplication` en los logs, sin `exited with code 1`.
