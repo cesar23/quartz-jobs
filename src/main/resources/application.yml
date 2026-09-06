@@ -94,3 +94,11 @@ logging:
   level:
     com.quartzjobs: ${LOG_LEVEL:INFO}
     org.quartz: INFO
+    # Librerias de terceros ruidosas a nivel INFO por defecto, sin aportar
+    # nada util al dia a dia (avisos de deprecacion de Hibernate, detalle
+    # interno de arranque de Tomcat, negociacion de contenido de Spring MVC).
+    # Comun a los 3 perfiles -- cada application-<perfil>.yml puede agregar
+    # supresiones extra propias (ej: org.hibernate.SQL en pre/prod).
+    org.hibernate.orm.deprecation: WARN
+    org.apache.catalina: WARN
+    org.springframework.web: WARN

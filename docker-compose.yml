@@ -82,6 +82,16 @@ services:
     volumes:
       # Logs persistentes en disco, independientes del log de Docker
       - ./logs:/app/logs
+    # Sobreescribe el HEALTHCHECK que trae el Dockerfile (default de Docker
+    # cuando no se especifica interval: cada 30s -- genera 2 lineas de log
+    # de CorrelationIdFilter por cada chequeo). Con esto, mismo chequeo,
+    # cada 2 minutos en vez de cada 30s.
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health"]
+      interval: 2m
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     ports:
       # HOST_PORT si varia por ambiente (7080 en pre, 8080 en dev/prod);
       # el lado derecho (contenedor) siempre es 8080, fijo -- ver arriba.

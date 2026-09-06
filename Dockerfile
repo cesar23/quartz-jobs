@@ -44,7 +44,13 @@ EXPOSE 8080
 # del contenedor siempre es 8080 en los 3 ambientes (dev/pre/prod). El
 # "puerto bonito" que varia por ambiente (7080 en pre) es un mapeo de
 # host, no algo que la app o este healthcheck necesiten saber.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+#
+# interval=2m (no 30s): cada chequeo genera 2 lineas de log via
+# CorrelationIdFilter -- 30s satura el log sin aportar nada, esto es solo
+# la RED de seguridad para orquestadores que ignoren docker-compose.yml
+# (ese SI define su propio healthcheck con este mismo intervalo, y es el
+# que manda cuando corres con "docker compose up").
+HEALTHCHECK --interval=2m --timeout=5s --start-period=40s --retries=3 \
   CMD wget -qO- http://localhost:8080/actuator/health | grep -q '"status":"UP"' || exit 1
 
 # Forma exec: Java es PID 1, recibe SIGTERM directamente (shutdown graceful).

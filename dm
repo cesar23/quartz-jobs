@@ -13,16 +13,20 @@ PATH_SCRIPT=$(readlink -f "${BASH_SOURCE:-$0}")
 SCRIPT_NAME=$(basename "$PATH_SCRIPT")
 CURRENT_DIR=$(dirname "$PATH_SCRIPT")
 
+# El contenedor de la app corre con este usuario (ver "user:" en
+# docker-compose.yml) -- necesario para que pueda escribir en ./logs
+export PUID="$(id -u)"
+export PGID="$(id -g)"
+
 # El docker-compose.yml vive en la misma carpeta que el script
 COMPOSE_FILE="${CURRENT_DIR}/docker-compose.yml"
 
 # Entornos disponibles (los 3 reales de quartz-jobs)
 ENV_OPTIONS=(".env.dev" ".env.pre" ".env.prod")
 SELECTED_ENV=""
-COMPOSE_OVERRIDE=""   # se calcula en get_compose_override()
 
 # =============================================================================
-# 🎨 SECTION: Colores
+# 馃帹 SECTION: Colores
 # =============================================================================
 
 Color_Off='\033[0m'
@@ -101,11 +105,7 @@ print_header() {
   echo -e "  ${BGray}Fecha   : ${BWhite}${DATE_HOUR_PE}${Color_Off}"
   echo -e "  ${BGray}Compose : ${BWhite}${COMPOSE_FILE}${Color_Off}"
   if [ -n "$SELECTED_ENV" ]; then
-    get_compose_override
     echo -e "  ${BGray}Entorno : ${BGreen}${SELECTED_ENV}${Color_Off}"
-    if [ -n "$COMPOSE_OVERRIDE" ] && [ -f "$COMPOSE_OVERRIDE" ]; then
-      echo -e "  ${BGray}Override: ${BGreen}$(basename "$COMPOSE_OVERRIDE")${Color_Off}"
-    fi
   fi
   echo ""
 }
@@ -147,59 +147,45 @@ check_env_file() {
 }
 
 # ==============================================================================
-# 📝 Función: get_compose_override
-# Descripción: Resuelve el archivo override según el entorno seleccionado
-#              dev  → docker-compose.dev.yml
-#              prod → docker-compose.prod.yml
-#              otro → sin override
+# 馃摑 Funci贸n: prepare_logs_dir
+# Descripci贸n: Crea logs/ y le asegura el due帽o correcto (PUID:PGID) ANTES de
+#              levantar el contenedor -- si Docker la crea sola (root), la
+#              app (usuario no-root del Dockerfile) no puede escribir
+#              logs/quartz-jobs.log ("Permission denied"). Mismo fix que
+#              start_pre.sh/start_prod.sh.
 # ==============================================================================
-get_compose_override() {
-  case "$SELECTED_ENV" in
-    *.dev|*.development)   COMPOSE_OVERRIDE="${CURRENT_DIR}/docker-compose.dev.yml"  ;;
-    *.pre|*.preproduction)   COMPOSE_OVERRIDE="${CURRENT_DIR}/docker-compose.pre.yml" ;;
-    *.prod|*.production)   COMPOSE_OVERRIDE="${CURRENT_DIR}/docker-compose.prod.yml" ;;
-    *)                     COMPOSE_OVERRIDE="" ;;
-  esac
+prepare_logs_dir() {
+  mkdir -p "${CURRENT_DIR}/logs"
+  if ! chown "${PUID}:${PGID}" "${CURRENT_DIR}/logs" 2>/dev/null; then
+    msg "鈿狅笍  No se pudo ajustar el due帽o de logs/ (驴pertenece a otro usuario/root?)." "WARNING"
+    msg "    Corre una vez: sudo chown -R \$(id -u):\$(id -g) ${CURRENT_DIR}/logs" "WARNING"
+  fi
 }
 
 # ==============================================================================
-# 📝 Función: run_compose
-# Descripción: Ejecuta docker compose incluyendo el override file del entorno
-# Parámetros:  $@ — argumentos extra para docker compose
+# 馃摑 Funci贸n: run_compose
+# Descripci贸n: Ejecuta docker compose para el entorno seleccionado
+# Par谩metros:  $@ 鈥?argumentos extra para docker compose
 # ==============================================================================
 run_compose() {
   local env_file="${CURRENT_DIR}/${SELECTED_ENV}"
-  get_compose_override
 
-  local override_args=()
-  if [ -n "$COMPOSE_OVERRIDE" ] && [ -f "$COMPOSE_OVERRIDE" ]; then
-    override_args=(-f "$COMPOSE_FILE" -f "$COMPOSE_OVERRIDE")
-    msg_time "▸ docker compose -f docker-compose.yml -f $(basename "$COMPOSE_OVERRIDE") --env-file ${SELECTED_ENV} $*" "DEBUG"
-  else
-    override_args=(-f "$COMPOSE_FILE")
-    msg_time "▸ docker compose -f docker-compose.yml --env-file ${SELECTED_ENV} $*" "DEBUG"
-  fi
-
+  msg_time "鈻?docker compose -f docker-compose.yml --env-file ${SELECTED_ENV} $*" "DEBUG"
   echo ""
-  docker compose "${override_args[@]}" --env-file "$env_file" "$@"
+  docker compose -f "$COMPOSE_FILE" --env-file "$env_file" "$@"
 }
 
 # ==============================================================================
-# 📝 Función: show_status
-# Descripción: Muestra el estado actual de los contenedores del stack
+# 馃摑 Funci贸n: show_status
+# Descripci贸n: Muestra el estado actual de los contenedores del stack
 # ==============================================================================
 show_status() {
   print_separator
-  msg "📋 Estado actual del stack:" "INFO"
+  msg "馃搵 Estado actual del stack:" "INFO"
   echo ""
   cd "$CURRENT_DIR"
   local env_file="${CURRENT_DIR}/${SELECTED_ENV}"
-  get_compose_override
-  if [ -n "$COMPOSE_OVERRIDE" ] && [ -f "$COMPOSE_OVERRIDE" ]; then
-    docker compose -f "$COMPOSE_FILE" -f "$COMPOSE_OVERRIDE" --env-file "$env_file" ps 2>/dev/null
-  else
-    docker compose -f "$COMPOSE_FILE" --env-file "$env_file" ps 2>/dev/null
-  fi
+  docker compose -f "$COMPOSE_FILE" --env-file "$env_file" ps 2>/dev/null
   echo ""
 }
 
@@ -308,6 +294,13 @@ menu_actions() {
         print_header
         msg_time "▶️  Levantando stack con [${SELECTED_ENV}]..." "INFO"
         print_separator
+        prepare_logs_dir
+        if confirm "驴Es la primera vez con esta base de datos? (bootstrap del esquema de Quartz)"; then
+          msg "馃啎 Aplicando QUARTZ_INIT_SCHEMA=always (solo esta vez)." "WARNING"
+          export QUARTZ_INIT_SCHEMA=always
+        else
+          export QUARTZ_INIT_SCHEMA=never
+        fi
         run_compose up -d
         show_status
         press_enter
@@ -326,7 +319,9 @@ menu_actions() {
         print_header
         msg_time "🔄 Reiniciando stack [${SELECTED_ENV}]..." "INFO"
         print_separator
-        msg "⏹️  Paso 1/2 — Parando..." "WARNING"
+        prepare_logs_dir
+        export QUARTZ_INIT_SCHEMA=never
+        msg "鈴癸笍  Paso 1/2 鈥?Parando..." "WARNING"
         run_compose down
         echo ""
         msg "▶️  Paso 2/2 — Levantando..." "INFO"
@@ -339,7 +334,14 @@ menu_actions() {
         print_header
         msg_time "🏗️  Recompilando imágenes (--no-cache) y levantando [${SELECTED_ENV}]..." "INFO"
         print_separator
-        msg "   Paso 1/2 — Build sin caché..." "WARNING"
+        prepare_logs_dir
+        if confirm "驴Es la primera vez con esta base de datos? (bootstrap del esquema de Quartz)"; then
+          msg "馃啎 Aplicando QUARTZ_INIT_SCHEMA=always (solo esta vez)." "WARNING"
+          export QUARTZ_INIT_SCHEMA=always
+        else
+          export QUARTZ_INIT_SCHEMA=never
+        fi
+        msg "   Paso 1/2 鈥?Build sin cach茅..." "WARNING"
         run_compose build --no-cache
         echo ""
         msg "   Paso 2/2 — Levantando..." "INFO"
@@ -374,14 +376,9 @@ menu_actions() {
         print_header
         show_status
         echo ""
-        get_compose_override
         local env_file="${CURRENT_DIR}/${SELECTED_ENV}"
         local ids
-        if [ -n "$COMPOSE_OVERRIDE" ] && [ -f "$COMPOSE_OVERRIDE" ]; then
-          ids=$(docker compose -f "$COMPOSE_FILE" -f "$COMPOSE_OVERRIDE" --env-file "$env_file" ps -q 2>/dev/null)
-        else
-          ids=$(docker compose -f "$COMPOSE_FILE" --env-file "$env_file" ps -q 2>/dev/null)
-        fi
+        ids=$(docker compose -f "$COMPOSE_FILE" --env-file "$env_file" ps -q 2>/dev/null)
         if [ -n "$ids" ]; then
           print_separator
           msg "📊 Uso de recursos (CPU / RAM):" "INFO"
