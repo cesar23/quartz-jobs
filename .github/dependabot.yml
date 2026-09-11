@@ -1,0 +1,52 @@
+# .github/dependabot.yml
+# =============================================================================
+# Dependabot: escaneo de vulnerabilidades + PRs automaticos de actualizacion.
+# 100% gratis en GitHub (publico y privado, cualquier plan) -- no requiere
+# ningun add-on de pago. Cubre 3 ecosistemas de este proyecto:
+#   - maven: dependencias de pom.xml (Spring Boot, Quartz, MySQL driver, etc.)
+#   - docker: la imagen base del Dockerfile (eclipse-temurin, maven)
+#   - github-actions: las actions que usa build.yml/promote_*.yml (checkout,
+#     setup-java, docker/build-push-action, trivy-action, etc.)
+# =============================================================================
+
+version: 2
+updates:
+  # --- Dependencias de Maven (pom.xml) ---------------------------------
+  - package-ecosystem: "maven"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "maven"
+    # Agrupa actualizaciones menores/parche en un solo PR, en vez de uno
+    # por dependencia -- mas facil de revisar y mergear.
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # --- Imagen base del Dockerfile ---------------------------------------
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "docker"
+
+  # --- Actions usadas en los workflows de CI/CD -------------------------
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "github-actions"
