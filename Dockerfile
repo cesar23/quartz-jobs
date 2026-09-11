@@ -22,7 +22,7 @@ RUN mvn clean package -DskipTests -B
 
 
 # ---- ETAPA 2: RUNTIME (imagen final) -------------------------------------
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 
 # Usuario no-root: evita correr el proceso de la app como root dentro
 # del contenedor, buena practica de seguridad en produccion.
