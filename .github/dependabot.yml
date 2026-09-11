@@ -2,51 +2,116 @@
 # =============================================================================
 # Dependabot: escaneo de vulnerabilidades + PRs automaticos de actualizacion.
 # 100% gratis en GitHub (publico y privado, cualquier plan) -- no requiere
-# ningun add-on de pago. Cubre 3 ecosistemas de este proyecto:
-#   - maven: dependencias de pom.xml (Spring Boot, Quartz, MySQL driver, etc.)
-#   - docker: la imagen base del Dockerfile (eclipse-temurin, maven)
-#   - github-actions: las actions que usa build.yml/promote_*.yml (checkout,
-#     setup-java, docker/build-push-action, trivy-action, etc.)
+# ningun add-on de pago (Advanced Security es aparte y SI es de pago, pero
+# Dependabot en si nunca lo necesita).
+#
+# Corre SOLO, por su cuenta, en el horario de "schedule" de cada bloque --
+# no hace falta ejecutar ningun comando ni entrar manualmente a dispararlo.
+# Lo que SI requiere accion manual es revisar y mergear cada Pull Request
+# que abre (Dependabot detecta y propone, nunca mergea el mismo por
+# defecto) -- ver Pull Requests del repo, autor "dependabot[bot]".
+#
+# Cubre 3 ecosistemas de este proyecto, cada uno en su propio bloque
+# "package-ecosystem" abajo:
+#   - maven          -> dependencias de pom.xml (Spring Boot, Quartz,
+#                       driver MySQL, Spotless, etc.)
+#   - docker          -> las imagenes base del Dockerfile (maven de build,
+#                       eclipse-temurin de runtime)
+#   - github-actions  -> las actions que usan build.yml/promote_*.yml
+#                       (checkout, setup-java, docker/build-push-action,
+#                       trivy-action, etc.)
 # =============================================================================
 
 version: 2
 updates:
-  # --- Dependencias de Maven (pom.xml) ---------------------------------
+  # ===========================================================================
+  # MAVEN -- dependencias de pom.xml
+  # ===========================================================================
   - package-ecosystem: "maven"
-    directory: "/"
+    directory: "/"                 # pom.xml esta en la raiz del proyecto
     schedule:
       interval: "weekly"
       day: "monday"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 10    # tope de PRs abiertos simultaneos para este ecosistema
+
     labels:
       - "dependencies"
       - "maven"
-    # Agrupa actualizaciones menores/parche en un solo PR, en vez de uno
-    # por dependencia -- mas facil de revisar y mergear.
+
+    # Agrupa actualizaciones MENOR/PARCHE (ej: 3.5.11 -> 3.5.12) en UN
+    # SOLO PR, en vez de uno por dependencia -- mas facil de revisar y
+    # mergear de una. Las actualizaciones MAYORES (ej: 3.x -> 4.x) NO
+    # entran en este grupo -- Dependabot las abre siempre por separado,
+    # nunca agrupadas con las de rutina.
     groups:
       minor-and-patch:
         update-types:
           - "minor"
           - "patch"
 
-  # --- Imagen base del Dockerfile ---------------------------------------
+    # Frenos explicitos para dependencias donde un salto MAYOR automatico
+    # es peligroso -- se siguen viendo notificadas (no se ocultan), pero
+    # como PR separado y sin mezclarse con el grupo de arriba, para que
+    # una actualizacion de rutina nunca termine subiendo por accidente
+    # algo que en realidad necesita revision propia (breaking changes,
+    # migracion de codigo, etc.)
+    ignore:
+      # Spring Boot 4.x es un salto MAYOR sobre la 3.x que usa este
+      # proyecto -- probablemente trae breaking changes. Se deja pasar
+      # parche/menor (3.5.11 -> 3.5.12, 3.5.x -> 3.6.x) pero NO el salto
+      # a 4.x, que debe evaluarse y migrarse a proposito, no vía un PR
+      # automatico mezclado con actualizaciones de rutina.
+      - dependency-name: "org.springframework.boot:spring-boot-starter-parent"
+        update-types: ["version-update:semver-major"]
+
+  # ===========================================================================
+  # DOCKER -- imagenes base del Dockerfile
+  # ===========================================================================
   - package-ecosystem: "docker"
-    directory: "/"
+    directory: "/"                 # Dockerfile esta en la raiz del proyecto
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+
     labels:
       - "dependencies"
       - "docker"
 
-  # --- Actions usadas en los workflows de CI/CD -------------------------
+    # IMPORTANTE: Dependabot para Docker no entiende "semver" de la app
+    # dentro de la imagen -- para tags tipo "21-jre-alpine" o
+    # "3.9.9-eclipse-temurin-21", el numero que le importa a Dependabot
+    # es el de la propia imagen/build, no el de Java. Por eso, sin este
+    # "ignore", puede proponer un PR saltando de Java 21 a Java 25 de
+    # golpe (ya paso: ver PR de "eclipse-temurin from 21-jre-alpine to
+    # 25-jre-alpine" y "maven from ...-eclipse-temurin-21 to
+    # ...-eclipse-temurin-26"). Un salto de version MAYOR de Java es una
+    # decision de migracion real (verificar compatibilidad de
+    # dependencias, recompilar, probar), no algo para aceptar en automatico.
+    ignore:
+      - dependency-name: "eclipse-temurin"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "maven"
+        update-types: ["version-update:semver-major"]
+
+  # ===========================================================================
+  # GITHUB ACTIONS -- las actions que usan los workflows de CI/CD
+  # ===========================================================================
   - package-ecosystem: "github-actions"
-    directory: "/"
+    directory: "/"                 # busca en .github/workflows/*.yml automaticamente
     schedule:
       interval: "weekly"
       day: "monday"
     open-pull-requests-limit: 5
+
     labels:
       - "dependencies"
       - "github-actions"
+
+    # Las Actions (actions/checkout, docker/build-push-action, etc.) rara
+    # vez traen breaking changes reales entre versiones mayores -- son
+    # herramientas de CI, no dependencias de tu codigo de negocio. Por
+    # eso aca SI se dejan pasar automaticas todas las actualizaciones,
+    # incluidas las mayores, sin "ignore". Igual cada PR corre tu build.yml
+    # completo (tests + MegaLinter + Semgrep + build de imagen) antes de
+    # que decidas mergear, asi que cualquier problema real se ve ahi.
