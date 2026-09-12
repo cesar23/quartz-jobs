@@ -1,0 +1,15 @@
+# .semgrepignore
+# Mismo criterio que .mega-linter.yml (EXCLUDED_DIRECTORIES): carpetas de
+# build, tooling y datos que no son código fuente propio.
+target/
+build/
+node_modules/
+.mvn/
+.gradle/
+.git/
+.vscode/
+.idea/
+megalinter-reports/
+my_resources/
+logs/
+data/
