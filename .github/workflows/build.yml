@@ -133,6 +133,46 @@ jobs:
           exit 1
 
   # ============================================
+  # JOB: SAST (Semgrep) — busca patrones de vulnerabilidad en el codigo
+  # ============================================
+  # Distinto de Checkstyle/PMD (estilo/calidad) y de Trivy (vulnerabilidades
+  # de DEPENDENCIAS/imagen ya conocidas, CVE) -- Semgrep analiza el CODIGO
+  # FUENTE buscando patrones inseguros (SQL injection, SSRF, uso inseguro
+  # de criptografia, etc.), sin importar si la libreria en si tiene un CVE.
+  #
+  # No bloqueante todavia (sin "exit 1" al final) -- corre y reporta, para
+  # revisar los primeros hallazgos antes de decidir volverlo bloqueante
+  # como el job de MegaLinter.
+  semgrep-analysis:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    name: Semgrep SAST
+    steps:
+      - name: Checkout código
+        uses: actions/checkout@v4
+
+      - name: Instalar Semgrep
+        run: python3 -m pip install semgrep
+
+      - name: Ejecutar Semgrep (Java + OWASP Top 10 + auditoria de seguridad)
+        run: |
+          semgrep scan \
+            --config p/java \
+            --config p/owasp-top-ten \
+            --config p/security-audit \
+            --sarif --output semgrep-results.sarif \
+            src/
+        continue-on-error: true
+
+      - name: Subir resultados de Semgrep como artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-results-sarif
+          path: semgrep-results.sarif
+          retention-days: 30
+
+  # ============================================
   # JOB 3: Build Docker Image (una sola vez) + Security Scan
   # ============================================
   # CAMBIO: ya no genera tags por rama (develop/pre/master). Ahora solo
@@ -143,7 +183,7 @@ jobs:
   # (ver promote-prod.yml), nunca por un build directo.
   docker-build-and-scan:
     runs-on: ubuntu-latest
-    needs: [build-and-test, megalinter-analysis]
+    needs: [build-and-test, megalinter-analysis, semgrep-analysis]
     name: Docker Build & Security Scan
     permissions:
       contents: read
